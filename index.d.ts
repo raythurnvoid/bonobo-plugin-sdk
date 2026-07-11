@@ -40,6 +40,8 @@ export interface BonoboUploadSource {
 	fileNodeId: string;
 	assetId: string;
 	name: string;
+	/** Absolute workspace path of the upload — build sibling output paths from it. */
+	path: string;
 	contentType: string | null;
 	size: number;
 }
@@ -59,33 +61,44 @@ export interface BonoboUploadCompletedEvent {
 }
 
 /**
- * Request body for `POST {host.apiOrigin}/api/plugins/v1/source-temporary-url`
- * (`Authorization: Bearer host.token`). `expiresInSeconds` is clamped to 1..900.
+ * Request body for `POST {host.apiOrigin}/api/v1/files/download-url`
+ * (`Authorization: Bearer host.token`). Plugin runs may request only the triggering upload's
+ * `source.fileNodeId`; anything else responds `404`. `expiresInSeconds` defaults to and is
+ * capped at 900, and is additionally capped to the remaining run-token lifetime.
  */
-export interface BonoboSourceTemporaryUrlRequest {
-	pluginRunId: string;
+export interface BonoboFilesDownloadUrlRequest {
+	fileNodeId: string;
 	expiresInSeconds?: number;
 }
 
 /**
- * Response body of `POST {host.apiOrigin}/api/plugins/v1/source-temporary-url` — a presigned
- * download URL for the triggering upload. `expiresAt` is Unix epoch milliseconds.
+ * Response body of `POST {host.apiOrigin}/api/v1/files/download-url` — a presigned download URL
+ * for the requested file. `expiresAt` is Unix epoch milliseconds.
  */
-export interface BonoboSourceTemporaryUrlResponse {
+export interface BonoboFilesDownloadUrlResponse {
+	fileNodeId: string;
 	url: string;
 	expiresAt: number;
 }
 
 /**
- * Request body for `POST {host.apiOrigin}/api/plugins/v1/write-markdown`
- * (`Authorization: Bearer host.token`). Writes a Markdown output file next to the source upload;
- * responds `{ ok: true }`. `overwrite` controls what happens when `path` already exists.
+ * Request body for `POST {host.apiOrigin}/api/v1/files/write`
+ * (`Authorization: Bearer host.token`). V1 writes Markdown only, and plugin runs may write only
+ * siblings of the triggering upload: `path` must be an absolute `.md` path whose parent folder
+ * equals `source.path`'s parent folder. `overwrite` defaults to `"replace"`; `"fail"` responds
+ * `409` when `path` already exists.
  */
-export interface BonoboWriteMarkdownRequest {
-	pluginRunId: string;
-	markdown: string;
-	path?: string;
+export interface BonoboFilesWriteRequest {
+	path: string;
+	content: string;
 	overwrite?: "replace" | "fail";
+}
+
+/** Response body of `POST {host.apiOrigin}/api/v1/files/write` — the created Markdown node. */
+export interface BonoboFilesWriteResponse {
+	path: string;
+	nodeId: string;
+	contentType: string;
 }
 
 /** Type of a plugin worker's `export default` — `fetch(request, env, ctx)` with a typed `env.BONOBO`. */

@@ -13,14 +13,19 @@ The host APIs below need no capability: requests to `env.BONOBO.host.apiOrigin` 
 
 ## Public host APIs
 
-Both are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authorization: Bearer <env.BONOBO.host.token>`:
+Both are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authorization: Bearer <env.BONOBO.host.token>` — the same `/api/v1/*` machine API used by developer API keys:
 
 | Route | Body | Response |
 | --- | --- | --- |
-| `POST /api/plugins/v1/source-temporary-url` | `BonoboSourceTemporaryUrlRequest` — `{ pluginRunId, expiresInSeconds? }` (1..900) | `BonoboSourceTemporaryUrlResponse` — `{ url, expiresAt }` (`expiresAt` in epoch ms) |
-| `POST /api/plugins/v1/write-markdown` | `BonoboWriteMarkdownRequest` — `{ pluginRunId, markdown, path?, overwrite?: "replace" \| "fail" }` | `{ ok: true }` |
+| `POST /api/v1/files/download-url` | `BonoboFilesDownloadUrlRequest` — `{ fileNodeId, expiresInSeconds? }` (defaults to and capped at 900, also capped to the remaining run-token lifetime) | `BonoboFilesDownloadUrlResponse` — `{ fileNodeId, url, expiresAt }` (`expiresAt` in epoch ms) |
+| `POST /api/v1/files/write` | `BonoboFilesWriteRequest` — `{ path, content, overwrite?: "replace" \| "fail" }` (`overwrite` defaults to `"replace"`) | `BonoboFilesWriteResponse` — `{ path, nodeId, contentType }` |
 
-Errors respond `400`/`401` with `{ message }`. A run succeeds only if it writes at least one markdown output.
+Plugin authority is scoped to the triggering upload:
+
+- `files/download-url` accepts only the run's `event.source.fileNodeId` and signs the run's original asset.
+- `files/write` is Markdown-only and writes siblings of the upload: `path` must be an absolute `.md` path whose parent folder equals `event.source.path`'s parent folder.
+
+Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope, `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` `overwrite: "fail"` conflict, `429` run call quota or rate limit, `500` curated storage failure. A run succeeds only if it writes at least one Markdown output.
 
 ## Typed worker example
 
@@ -43,10 +48,10 @@ export default {
 		};
 
 		// Host API: presigned URL for the triggering upload.
-		const urlResponse = await fetch(`${env.BONOBO.host.apiOrigin}/api/plugins/v1/source-temporary-url`, {
+		const urlResponse = await fetch(`${env.BONOBO.host.apiOrigin}/api/v1/files/download-url`, {
 			method: "POST",
 			headers: hostHeaders,
-			body: JSON.stringify({ pluginRunId: event.pluginRunId, expiresInSeconds: 900 }),
+			body: JSON.stringify({ fileNodeId: event.source.fileNodeId, expiresInSeconds: 900 }),
 		});
 		const { url } = await urlResponse.json();
 
@@ -61,11 +66,14 @@ export default {
 		});
 		const completion = await aiResponse.json();
 
-		// Host API: write the run's markdown output.
-		await fetch(`${env.BONOBO.host.apiOrigin}/api/plugins/v1/write-markdown`, {
+		// Host API: write the run's Markdown output next to the upload.
+		await fetch(`${env.BONOBO.host.apiOrigin}/api/v1/files/write`, {
 			method: "POST",
 			headers: hostHeaders,
-			body: JSON.stringify({ pluginRunId: event.pluginRunId, markdown: completion.choices[0].message.content }),
+			body: JSON.stringify({
+				path: `${event.source.path}.description.md`,
+				content: completion.choices[0].message.content,
+			}),
 		});
 
 		return Response.json({ ok: true });
