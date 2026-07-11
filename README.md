@@ -17,7 +17,7 @@ Both are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authoriza
 
 | Route | Body | Response |
 | --- | --- | --- |
-| `POST /api/v1/files/download-url` | `BonoboFilesDownloadUrlRequest` — `{ fileNodeId, expiresInSeconds? }` (defaults to and capped at 900, also capped to the remaining run-token lifetime) | `BonoboFilesDownloadUrlResponse` — `{ fileNodeId, url, expiresAt }` (`expiresAt` in epoch ms) |
+| `POST /api/v1/files/download-url` | `BonoboFilesDownloadUrlRequest` — `{ fileNodeId, expiresInSeconds? }` (1–900; defaults to 900; values above 900 are rejected with `400`, not clamped; the granted TTL is then clamped to the remaining run-token lifetime) | `BonoboFilesDownloadUrlResponse` — `{ fileNodeId, url, expiresAt }` (`expiresAt` in epoch ms) |
 | `POST /api/v1/files/write` | `BonoboFilesWriteRequest` — `{ path, content, overwrite?: "replace" \| "fail" }` (`overwrite` defaults to `"replace"`) | `BonoboFilesWriteResponse` — `{ path, nodeId, contentType }` |
 
 Plugin authority is scoped to the triggering upload:
@@ -25,7 +25,7 @@ Plugin authority is scoped to the triggering upload:
 - `files/download-url` accepts only the run's `event.source.fileNodeId` and signs the run's original asset.
 - `files/write` is Markdown-only and writes siblings of the upload: `path` must be an absolute `.md` path whose parent folder equals `event.source.path`'s parent folder.
 
-Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope, `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` `overwrite: "fail"` conflict, `429` run call quota or rate limit, `500` curated storage failure. A run succeeds only if it writes at least one Markdown output.
+Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope or a write path outside the upload's parent folder (the sibling constraint), `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` `overwrite: "fail"` conflict, `429` run call quota or rate limit, `500` curated storage failure. A run succeeds only if it writes at least one Markdown output.
 
 ## Typed worker example
 

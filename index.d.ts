@@ -63,8 +63,9 @@ export interface BonoboUploadCompletedEvent {
 /**
  * Request body for `POST {host.apiOrigin}/api/v1/files/download-url`
  * (`Authorization: Bearer host.token`). Plugin runs may request only the triggering upload's
- * `source.fileNodeId`; anything else responds `404`. `expiresInSeconds` defaults to and is
- * capped at 900, and is additionally capped to the remaining run-token lifetime.
+ * `source.fileNodeId`; anything else responds `404`. `expiresInSeconds` accepts 1–900 and
+ * defaults to 900; values above 900 are rejected with `400`, not clamped. The granted TTL is
+ * then clamped to the remaining run-token lifetime.
  */
 export interface BonoboFilesDownloadUrlRequest {
 	fileNodeId: string;
@@ -85,8 +86,8 @@ export interface BonoboFilesDownloadUrlResponse {
  * Request body for `POST {host.apiOrigin}/api/v1/files/write`
  * (`Authorization: Bearer host.token`). V1 writes Markdown only, and plugin runs may write only
  * siblings of the triggering upload: `path` must be an absolute `.md` path whose parent folder
- * equals `source.path`'s parent folder. `overwrite` defaults to `"replace"`; `"fail"` responds
- * `409` when `path` already exists.
+ * equals `source.path`'s parent folder — any other folder responds `403`. `overwrite` defaults
+ * to `"replace"`; `"fail"` responds `409` when `path` already exists.
  */
 export interface BonoboFilesWriteRequest {
 	path: string;
