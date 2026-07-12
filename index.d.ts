@@ -3,8 +3,37 @@ import type { ExportedHandler } from "@cloudflare/workers-types";
 /** Cloudflare workers types re-exported so plugin repos only need this package for worker typing. */
 export type { ExportedHandler, ExecutionContext, Request, Response } from "@cloudflare/workers-types";
 
-/** The two capabilities a plugin manifest may declare and a workspace consents to on install. */
-export type BonoboCapability = "plugin.secrets.read" | "outbound.fetch";
+/**
+ * The capabilities a plugin manifest may declare and a workspace consents to on install.
+ * `workspace.files.read` gates plugin-UI read access to workspace files — it puts the
+ * `files:list`, `files:read`, and `files:download` scopes on the page's UI token — and never
+ * applies to backend runs.
+ */
+export type BonoboCapability = "plugin.secrets.read" | "outbound.fetch" | "workspace.files.read";
+
+/**
+ * Optional `navItem` of a manifest `pages[]` entry ({@link BonoboManifestPage}) — its presence
+ * is the explicit opt-in that contributes a main-sidebar nav item in the host app. `label` is
+ * 1–40 characters; `icon` is an optional lucide kebab-case icon name matching
+ * `/^[a-z0-9-]{1,64}$/`.
+ */
+export interface BonoboManifestPageNavItem {
+	label: string;
+	icon?: string;
+}
+
+/**
+ * A manifest `pages[]` entry — a plugin UI page the host app loads in a sandboxed iframe (see
+ * the `bonobo-plugin-sdk/frontend` export). `id` matches `/^[a-z0-9][a-z0-9-]{0,63}$/` and is
+ * unique per manifest, `title` is 1–80 characters, and `entry` must be a manifest `files[]`
+ * entry with contentType `"text/html"`.
+ */
+export interface BonoboManifestPage {
+	id: string;
+	title: string;
+	entry: string;
+	navItem?: BonoboManifestPageNavItem;
+}
 
 /**
  * `env.BONOBO.secrets` — requires the `plugin.secrets.read` capability.
