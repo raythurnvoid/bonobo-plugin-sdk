@@ -99,15 +99,15 @@ A manifest may declare UI pages the host app embeds:
 
 ### Sandbox and token model
 
-The host loads `entry` into an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page runs with an opaque origin, and appends `parentOrigin`, `pageId`, and a per-frame `bridgeNonce` to the iframe URL. Page and host talk over postMessage protocol 2: the page receives a short-lived scoped bearer token (`plu_...`) via postMessage — never via URL — and calls the public `/api/v1/*` API on `apiOrigin` directly with `Authorization: Bearer <token>`. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
+The host loads `entry` into an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page runs with an opaque origin, and appends `parentOrigin`, `pageId`, and a per-frame `bridgeNonce` to the iframe URL. Page and host talk over postMessage protocol 1: the page receives a short-lived scoped bearer token (`plu_...`) via postMessage — never via URL — and calls the public `/api/v1/*` API on `apiOrigin` directly with `Authorization: Bearer <token>`. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
 
 | Direction | Message | Fields |
 | --- | --- | --- |
-| page → host | `bonobo:ready` | `protocolVersion: 2`, `bridgeNonce` |
-| page → host | `bonobo:token-refresh-request` | `protocolVersion: 2`, `bridgeNonce`, `requestId` |
-| host → page | `bonobo:init` | `protocolVersion: 2`, `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context: { pluginName, pageId, pageTitle, organizationId, workspaceId }` |
-| host → page | `bonobo:token` | `protocolVersion: 2`, `bridgeNonce`, `requestId`, `token`, `tokenExpiresAt` |
-| host → page | `bonobo:token-error` | `protocolVersion: 2`, `bridgeNonce`, `requestId`, `message` |
+| page → host | `bonobo:ready` | `protocolVersion: 1`, `bridgeNonce` |
+| page → host | `bonobo:token-refresh-request` | `protocolVersion: 1`, `bridgeNonce`, `requestId` |
+| host → page | `bonobo:init` | `protocolVersion: 1`, `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context: { pluginName, pageId, pageTitle, organizationId, workspaceId }` |
+| host → page | `bonobo:token` | `protocolVersion: 1`, `bridgeNonce`, `requestId`, `token`, `tokenExpiresAt` |
+| host → page | `bonobo:token-error` | `protocolVersion: 1`, `bridgeNonce`, `requestId`, `message` |
 
 `bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side, including the bridge rules: it accepts incoming messages only when `event.origin === parentOrigin`, `event.source === window.parent`, and the protocol/nonce match; posts to `window.parent` with `targetOrigin: parentOrigin` exactly; retries the initial ready message for a bounded period; and silently ignores everything else.
 

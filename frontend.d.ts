@@ -5,7 +5,7 @@
  */
 export interface BonoboUiReadyMessage {
 	type: "bonobo:ready";
-	protocolVersion: 2;
+	protocolVersion: 1;
 	bridgeNonce: string;
 }
 
@@ -15,7 +15,7 @@ export interface BonoboUiReadyMessage {
  */
 export interface BonoboUiTokenRefreshRequestMessage {
 	type: "bonobo:token-refresh-request";
-	protocolVersion: 2;
+	protocolVersion: 1;
 	bridgeNonce: string;
 	requestId: string;
 }
@@ -38,7 +38,7 @@ export interface BonoboUiPageContext {
  */
 export interface BonoboUiInitMessage {
 	type: "bonobo:init";
-	protocolVersion: 2;
+	protocolVersion: 1;
 	bridgeNonce: string;
 	apiOrigin: string;
 	token: string;
@@ -52,7 +52,7 @@ export interface BonoboUiInitMessage {
  */
 export interface BonoboUiTokenMessage {
 	type: "bonobo:token";
-	protocolVersion: 2;
+	protocolVersion: 1;
 	bridgeNonce: string;
 	requestId: string;
 	token: string;
@@ -62,7 +62,7 @@ export interface BonoboUiTokenMessage {
 /** The host's failure answer to {@link BonoboUiTokenRefreshRequestMessage}. */
 export interface BonoboUiTokenErrorMessage {
 	type: "bonobo:token-error";
-	protocolVersion: 2;
+	protocolVersion: 1;
 	bridgeNonce: string;
 	requestId: string;
 	message: string;
@@ -109,7 +109,7 @@ export interface BonoboUiFrontendClient {
 /**
  * Connects the page to the embedding host app. It installs one shared `message` listener (for
  * init and token responses), posts {@link BonoboUiReadyMessage} to `window.parent`, and resolves
- * with the client when the host's {@link BonoboUiInitMessage} (protocol v2) arrives.
+ * with the client when the host's {@link BonoboUiInitMessage} (protocol v1) arrives.
  * `bonobo:init` messages after the first are ignored.
  *
  * Reads `parentOrigin` and `bridgeNonce` from the query params the host appends to the iframe

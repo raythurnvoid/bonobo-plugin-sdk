@@ -16,7 +16,7 @@ function post_from_host(data: unknown, origin: string = HOST_ORIGIN): void {
 function make_init(overrides?: Record<string, unknown>) {
 	return {
 		type: "bonobo:init",
-		protocolVersion: 2,
+		protocolVersion: 1,
 		bridgeNonce: BRIDGE_NONCE,
 		apiOrigin: "https://api.test",
 		token: "plu_1",
@@ -46,7 +46,7 @@ describe("bonobo_ui_connect", () => {
 		const post_spy = spy_on_post_message();
 		const client_promise = bonobo_ui_connect();
 		expect(post_spy).toHaveBeenCalledWith(
-			{ type: "bonobo:ready", protocolVersion: 2, bridgeNonce: BRIDGE_NONCE },
+			{ type: "bonobo:ready", protocolVersion: 1, bridgeNonce: BRIDGE_NONCE },
 			HOST_ORIGIN,
 		);
 
@@ -92,13 +92,13 @@ describe("bonobo_ui_connect", () => {
 		}
 		const request_id = (refresh_call[0] as { requestId: string }).requestId;
 		expect(refresh_call[0]).toMatchObject({
-			protocolVersion: 2,
+			protocolVersion: 1,
 			bridgeNonce: BRIDGE_NONCE,
 			requestId: request_id,
 		});
 		post_from_host({
 			type: "bonobo:token",
-			protocolVersion: 2,
+			protocolVersion: 1,
 			bridgeNonce: BRIDGE_NONCE,
 			requestId: request_id,
 			token: "plu_2",
@@ -149,7 +149,7 @@ describe("bonobo_ui_connect", () => {
 		const second_request = refresh_calls[1]?.[0] as { requestId: string };
 		post_from_host({
 			type: "bonobo:token",
-			protocolVersion: 2,
+			protocolVersion: 1,
 			bridgeNonce: BRIDGE_NONCE,
 			requestId: second_request.requestId,
 			token: "plu_3",
