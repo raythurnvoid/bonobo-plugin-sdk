@@ -95,21 +95,21 @@ A manifest may declare UI pages the host app embeds:
 - `id` — matches `/^[a-z0-9][a-z0-9-]{0,63}$/`, unique per manifest.
 - `title` — 1–80 characters.
 - `entry` — must be a manifest `files[]` entry with contentType `"text/html"`.
-- `navItem` (optional) — its presence contributes a main-sidebar nav item in the host app: `label` is 1–40 characters, `icon` an optional lucide kebab-case name matching `/^[a-z0-9-]{1,64}$/`.
+- `navItem` (optional) — its presence contributes a main-sidebar nav item in the host app: `label` is 1–40 characters, `icon` an optional lucide kebab-case name matching `/^[a-z0-9-]{1,64}$/`. The host currently renders only `images`, `image`, `film`, and `gallery-vertical-end`; any other name publishes fine but falls back to a generic puzzle icon (the supported set can grow without a manifest change).
 
 ### Sandbox and token model
 
-The host loads `entry` into an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page runs with an opaque origin, and appends `?parentOrigin=<encoded parent app origin>&pageId=<page id>` to the iframe URL. Page and host talk over postMessage (protocol v1): the page receives a short-lived scoped bearer token (`plu_...`) via postMessage — never via URL — and calls the public `/api/v1/*` API on `apiOrigin` directly with `Authorization: Bearer <token>`. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
+The host loads `entry` into an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page runs with an opaque origin, and appends `parentOrigin`, `pageId`, and a per-frame `bridgeNonce` to the iframe URL. Page and host talk over postMessage protocol 2: the page receives a short-lived scoped bearer token (`plu_...`) via postMessage — never via URL — and calls the public `/api/v1/*` API on `apiOrigin` directly with `Authorization: Bearer <token>`. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
 
 | Direction | Message | Fields |
 | --- | --- | --- |
-| page → host | `bonobo:ready` | `protocolVersion: 1` |
-| page → host | `bonobo:token-refresh-request` | `requestId` |
-| host → page | `bonobo:init` | `protocolVersion: 1`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context: { pluginName, pageId, pageTitle, organizationId, workspaceId }` |
-| host → page | `bonobo:token` | `requestId`, `token`, `tokenExpiresAt` |
-| host → page | `bonobo:token-error` | `requestId`, `message` |
+| page → host | `bonobo:ready` | `protocolVersion: 2`, `bridgeNonce` |
+| page → host | `bonobo:token-refresh-request` | `protocolVersion: 2`, `bridgeNonce`, `requestId` |
+| host → page | `bonobo:init` | `protocolVersion: 2`, `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context: { pluginName, pageId, pageTitle, organizationId, workspaceId }` |
+| host → page | `bonobo:token` | `protocolVersion: 2`, `bridgeNonce`, `requestId`, `token`, `tokenExpiresAt` |
+| host → page | `bonobo:token-error` | `protocolVersion: 2`, `bridgeNonce`, `requestId`, `message` |
 
-`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side, including the security rules: it accepts incoming messages only when `event.origin === parentOrigin && event.source === window.parent`, posts to `window.parent` with `targetOrigin: parentOrigin` exactly, and silently ignores everything else.
+`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side, including the bridge rules: it accepts incoming messages only when `event.origin === parentOrigin`, `event.source === window.parent`, and the protocol/nonce match; posts to `window.parent` with `targetOrigin: parentOrigin` exactly; retries the initial ready message for a bounded period; and silently ignores everything else.
 
 ### UI token API surface
 
@@ -123,7 +123,7 @@ With the `workspace.files.read` capability the UI token may call:
 
 UI tokens are rejected on `/api/v1/files/write`.
 
-Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentTypePrefixes` the server post-filters each page after pagination, so a page may come back short or even empty while `isDone` is still `false` — keep passing `cursor` until `isDone` is `true` or you have enough items.
+Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentTypePrefixes` the server post-filters each page after pagination, so a page may come back short or even empty while `isDone` is still `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. Scan with `limit: 100` and `kind: "file"`, bound the pages advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor.
 
 ### Frontend page example
 
@@ -133,16 +133,35 @@ import { bonobo_ui_connect } from "bonobo-plugin-sdk/frontend";
 const client = await bonobo_ui_connect();
 document.title = client.context.pageTitle;
 
-// files:list — contentTypePrefixes is post-filtered per page, so a short or empty page
-// does not mean the listing is done; stop on isDone or once there is enough.
+// files:list — contentTypePrefixes is post-filtered per page, so a short or even empty page
+// does not mean the listing is done. Scan wide (limit 100, kind "file"), cap how many source
+// pages one user action advances, and keep the cursor so the next action resumes; anything
+// fetched beyond what is shown stays buffered for that next action.
 let cursor = null;
+let isDone = false;
 const images = [];
-while (images.length < 48) {
-	const page = await client.fetchJson("/api/v1/files/list", {
-		body: { path: "/", recursive: true, contentTypePrefixes: ["image/"], cursor },
-	});
+for (let pages = 0; images.length < 48 && !isDone && pages < 30; pages += 1) {
+	let page;
+	for (let attempt = 0; ; attempt += 1) {
+		try {
+			page = await client.fetchJson("/api/v1/files/list", {
+				body: { path: "/", recursive: true, kind: "file", limit: 100, contentTypePrefixes: ["image/"], cursor },
+			});
+			break;
+		} catch (error) {
+			// Rate limited: back off and retry the same cursor — the page is not lost and the
+			// retries do not consume the page budget. Give up after two waits so a persistent
+			// 429 surfaces instead of looping forever.
+			if (error.status === 429 && attempt < 2) {
+				await new Promise((resolve) => setTimeout(resolve, [3000, 6000][attempt]));
+				continue;
+			}
+			throw error;
+		}
+	}
 	images.push(...page.items);
-	if (page.isDone) break;
 	cursor = page.cursor;
+	isDone = page.isDone;
 }
+// Show the first 48; keep the overflow plus `cursor` for the next "load more".
 ```

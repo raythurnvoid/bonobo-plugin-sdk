@@ -5,17 +5,19 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
 
 /**
  * The capabilities a plugin manifest may declare and a workspace consents to on install.
- * `workspace.files.read` gates plugin-UI read access to workspace files — it puts the
- * `files:list`, `files:read`, and `files:download` scopes on the page's UI token — and never
+ * `workspace.files.read` gives the plugin's UI pages read access to workspace files — it puts
+ * the `files:list`, `files:read`, and `files:download` scopes on the page's UI token. It never
  * applies to backend runs.
  */
 export type BonoboCapability = "plugin.secrets.read" | "outbound.fetch" | "workspace.files.read";
 
 /**
- * Optional `navItem` of a manifest `pages[]` entry ({@link BonoboManifestPage}) — its presence
- * is the explicit opt-in that contributes a main-sidebar nav item in the host app. `label` is
- * 1–40 characters; `icon` is an optional lucide kebab-case icon name matching
- * `/^[a-z0-9-]{1,64}$/`.
+ * Optional `navItem` of a manifest `pages[]` entry ({@link BonoboManifestPage}). Declaring it is
+ * the explicit opt-in that adds a main-sidebar nav item in the host app. `label` is 1–40
+ * characters; `icon` is an optional lucide kebab-case icon name matching `/^[a-z0-9-]{1,64}$/`.
+ * The host currently renders only `"images"`, `"image"`, `"film"`, and `"gallery-vertical-end"`.
+ * Any other name publishes fine but falls back to a generic puzzle icon, so the supported set
+ * can grow without a manifest change.
  */
 export interface BonoboManifestPageNavItem {
 	label: string;
@@ -23,7 +25,7 @@ export interface BonoboManifestPageNavItem {
 }
 
 /**
- * A manifest `pages[]` entry — a plugin UI page the host app loads in a sandboxed iframe (see
+ * A manifest `pages[]` entry: a plugin UI page the host app loads in a sandboxed iframe (see
  * the `bonobo-plugin-sdk/frontend` export). `id` matches `/^[a-z0-9][a-z0-9-]{0,63}$/` and is
  * unique per manifest, `title` is 1–80 characters, and `entry` must be a manifest `files[]`
  * entry with contentType `"text/html"`.
