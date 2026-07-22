@@ -16,14 +16,14 @@ The host APIs below need no capability: requests to `env.BONOBO.host.apiOrigin` 
 
 Both are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authorization: Bearer <env.BONOBO.host.token>` — the same `/api/v1/*` machine API used by developer API keys:
 
-| Route | Body | Response |
-| --- | --- | --- |
-| `POST /api/v1/files/download-url` | `BonoboFilesDownloadUrlRequest` — `{ fileNodeId, expiresInSeconds? }` (1–900; defaults to 900; values above 900 are rejected with `400`, not clamped; the granted TTL is then clamped to the remaining run-token lifetime) | `BonoboFilesDownloadUrlResponse` — `{ fileNodeId, url, expiresAt }` (`expiresAt` in epoch ms) |
-| `POST /api/v1/files/write` | `BonoboFilesWriteRequest` — `{ path, content, overwrite?: "replace" \| "fail" }` (`overwrite` defaults to `"replace"`) | `BonoboFilesWriteResponse` — `{ path, nodeId, contentType }` |
+| Route                              | Body                                                                                                                                                                                                 | Response                                                                                                                                          |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/v1/files/download-urls` | `BonoboFilesDownloadUrlsRequest` — `{ fileNodeIds, expiresInSeconds? }` (1–900; defaults to 900; the granted TTL is clamped below the remaining run-token lifetime with a one-second signing margin) | `BonoboFilesDownloadUrlsResponse` — `{ items, errors, truncated }`; each item contains `{ fileNodeId, url, expiresAt }` (`expiresAt` in epoch ms) |
+| `POST /api/v1/files/write`         | `BonoboFilesWriteRequest` — `{ path, content, overwrite?: "replace" \| "fail" }` (`overwrite` defaults to `"replace"`)                                                                               | `BonoboFilesWriteResponse` — `{ path, nodeId, contentType }`                                                                                      |
 
 Plugin authority is scoped to the triggering upload:
 
-- `files/download-url` accepts only the run's `event.source.fileNodeId` and signs the run's original asset.
+- `files/download-urls` accepts only `[event.source.fileNodeId]` for backend runs and signs the run's original asset.
 - `files/write` is Markdown-only and writes siblings of the upload: `path` must be an absolute `.md` path whose parent folder equals `event.source.path`'s parent folder.
 
 Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope or a write path outside the upload's parent folder (the sibling constraint), `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` `overwrite: "fail"` conflict, `429` run call quota or rate limit, `500` curated storage failure. A run succeeds only if it writes at least one Markdown output.
@@ -49,12 +49,13 @@ export default {
 		};
 
 		// Host API: presigned URL for the triggering upload.
-		const urlResponse = await fetch(`${env.BONOBO.host.apiOrigin}/api/v1/files/download-url`, {
+		const urlResponse = await fetch(`${env.BONOBO.host.apiOrigin}/api/v1/files/download-urls`, {
 			method: "POST",
 			headers: hostHeaders,
-			body: JSON.stringify({ fileNodeId: event.source.fileNodeId, expiresInSeconds: 900 }),
+			body: JSON.stringify({ fileNodeIds: [event.source.fileNodeId], expiresInSeconds: 900 }),
 		});
-		const { url } = await urlResponse.json();
+		const { items } = await urlResponse.json();
+		const { url } = items[0];
 
 		// outbound.fetch: third-party call — the origin must be in the manifest's outbound origins.
 		const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -99,29 +100,36 @@ A manifest may declare UI pages the host app embeds:
 
 ### Sandbox and token model
 
-The host loads `entry` into an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page runs with an opaque origin, and appends `parentOrigin`, `pageId`, and a per-frame `bridgeNonce` to the iframe URL. Page and host talk over postMessage protocol 1: the page receives a short-lived scoped bearer token (`plu_...`) via postMessage — never via URL — and calls the public `/api/v1/*` API on `apiOrigin` directly with `Authorization: Bearer <token>`. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
+The host loads `entry` at its immutable asset URL in an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page runs with an opaque origin. The URL has no bridge, context, request, or token query parameters. Page and host use one strict postMessage contract: the page first sends a non-sensitive ready message, then receives the host origin, a per-frame nonce, page context, and a short-lived scoped bearer token (`plu_...`) in `bonobo:init`. The token never appears in a URL. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
 
-| Direction | Message | Fields |
-| --- | --- | --- |
-| page → host | `bonobo:ready` | `protocolVersion: 1`, `bridgeNonce` |
-| page → host | `bonobo:token-refresh-request` | `protocolVersion: 1`, `bridgeNonce`, `requestId` |
-| host → page | `bonobo:init` | `protocolVersion: 1`, `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context: { pluginName, pageId, pageTitle, organizationId, workspaceId }` |
-| host → page | `bonobo:token` | `protocolVersion: 1`, `bridgeNonce`, `requestId`, `token`, `tokenExpiresAt` |
-| host → page | `bonobo:token-error` | `protocolVersion: 1`, `bridgeNonce`, `requestId`, `message` |
+A plugin frontend is trusted with the token and every datum its accepted permissions expose. The sandbox isolates the host DOM, cookies, and origin, but it is not a confidentiality boundary against the page code itself: page navigation can send data away before the host observes the next load and revokes the session.
 
-`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side, including the bridge rules: it accepts incoming messages only when `event.origin === parentOrigin`, `event.source === window.parent`, and the protocol/nonce match; posts to `window.parent` with `targetOrigin: parentOrigin` exactly; retries the initial ready message for a bounded period; and silently ignores everything else.
+| Direction   | Message                        | Fields                                                                                                                                      |
+| ----------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| page → host | `bonobo:ready`                 | none                                                                                                                                        |
+| page → host | `bonobo:token-refresh-request` | `bridgeNonce`, `requestId`                                                                                                                  |
+| host → page | `bonobo:init`                  | `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context: { pluginName, pageId, pageTitle, organizationId, workspaceId }` |
+| host → page | `bonobo:token`                 | `bridgeNonce`, `requestId`, `token`, `tokenExpiresAt`                                                                                       |
+| host → page | `bonobo:token-error`           | `bridgeNonce`, `requestId`, `message`                                                                                                       |
+
+`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side. Ready contains no secret, so it is posted with `targetOrigin: "*"` until init arrives. The first init must come from `window.parent`; the SDK records that message's exact origin and nonce, pins both for refresh traffic, and retries ready until init or document unload. The host owns the startup deadline.
 
 ### UI token API surface
 
 With the `workspace.files.read` capability the UI token may call:
 
-| Route | Scope |
-| --- | --- |
-| `POST /api/v1/files/list` | `files:list` |
-| `POST /api/v1/files/read` | `files:read` |
-| `POST /api/v1/files/download-url` | `files:download` |
+| Route                              | Scope            |
+| ---------------------------------- | ---------------- |
+| `POST /api/v1/files/list`          | `files:list`     |
+| `POST /api/v1/files/read`          | `files:read`     |
+| `POST /api/v1/files/download-urls` | `files:download` |
 
 UI tokens are rejected on `/api/v1/files/write`.
+
+`files/download-urls` accepts at most 100 file IDs in a 32 KB request, processes the first 20, and returns `{ items, errors, truncated }`.
+Each of the first 20 requested files consumes one call from the route's principal rate-limit
+bucket. One inaccessible file appears in `errors` without discarding the other successful URLs.
+Duplicate file IDs are rejected with `400` before they consume route capacity or start file work.
 
 Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentTypePrefixes` the server post-filters each page after pagination, so a page may come back short or even empty while `isDone` is still `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. Scan with `limit: 100` and `kind: "file"`, bound the pages advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor.
 

@@ -92,25 +92,38 @@ export interface BonoboUploadCompletedEvent {
 }
 
 /**
- * Request body for `POST {host.apiOrigin}/api/v1/files/download-url`
- * (`Authorization: Bearer host.token`). Plugin runs may request only the triggering upload's
- * `source.fileNodeId`; anything else responds `404`. `expiresInSeconds` accepts 1–900 and
- * defaults to 900; values above 900 are rejected with `400`, not clamped. The granted TTL is
- * then clamped to the remaining run-token lifetime.
+ * Request body for `POST {host.apiOrigin}/api/v1/files/download-urls`
+ * (`Authorization: Bearer host.token`). Backend plugin runs must pass an array containing only
+ * the triggering upload's `source.fileNodeId`; anything else responds `404`.
+ * `expiresInSeconds` accepts 1–900 and defaults to 900. The granted TTL is clamped to the
+ * remaining run-token lifetime.
  */
-export interface BonoboFilesDownloadUrlRequest {
-	fileNodeId: string;
+export interface BonoboFilesDownloadUrlsRequest {
+	fileNodeIds: string[];
 	expiresInSeconds?: number;
 }
 
 /**
- * Response body of `POST {host.apiOrigin}/api/v1/files/download-url` — a presigned download URL
- * for the requested file. `expiresAt` is Unix epoch milliseconds.
+ * One successful file in {@link BonoboFilesDownloadUrlsResponse}. `expiresAt` is Unix epoch
+ * milliseconds.
  */
-export interface BonoboFilesDownloadUrlResponse {
+export interface BonoboFilesDownloadUrlItem {
 	fileNodeId: string;
 	url: string;
 	expiresAt: number;
+}
+
+/** One file the host could not sign in {@link BonoboFilesDownloadUrlsResponse}. */
+export interface BonoboFilesDownloadUrlError {
+	fileNodeId: string;
+	message: string;
+}
+
+/** Response body of `POST {host.apiOrigin}/api/v1/files/download-urls`. */
+export interface BonoboFilesDownloadUrlsResponse {
+	items: BonoboFilesDownloadUrlItem[];
+	errors: BonoboFilesDownloadUrlError[];
+	truncated: boolean;
 }
 
 /**
@@ -118,7 +131,8 @@ export interface BonoboFilesDownloadUrlResponse {
  * (`Authorization: Bearer host.token`). V1 writes Markdown only, and plugin runs may write only
  * siblings of the triggering upload: `path` must be an absolute `.md` path whose parent folder
  * equals `source.path`'s parent folder — any other folder responds `403`. `overwrite` defaults
- * to `"replace"`; `"fail"` responds `409` when `path` already exists.
+ * to `"replace"`; `"fail"` responds `409` when `path` already exists. Writing over an existing
+ * editable Markdown file replaces its content in place and keeps the same `nodeId`.
  */
 export interface BonoboFilesWriteRequest {
 	path: string;
@@ -126,11 +140,54 @@ export interface BonoboFilesWriteRequest {
 	overwrite?: "replace" | "fail";
 }
 
-/** Response body of `POST {host.apiOrigin}/api/v1/files/write` — the created Markdown node. */
+/** Response body of `POST {host.apiOrigin}/api/v1/files/write` — the written Markdown node. */
 export interface BonoboFilesWriteResponse {
 	path: string;
 	nodeId: string;
 	contentType: string;
+}
+
+/**
+ * Request body for `POST {host.apiOrigin}/api/v1/files/touch`
+ * (`Authorization: Bearer host.token`). Creates empty editable Markdown files so users get
+ * immediate feedback about where a run's outputs will land; later `files/write` calls fill the
+ * same nodes in place. Paths follow the same rules as `files/write` (absolute sibling `.md`
+ * paths for plugin runs), at most 8 per call, and the call is idempotent: an already existing
+ * file responds with its node and `created: false`.
+ */
+export interface BonoboFilesTouchRequest {
+	paths: string[];
+}
+
+/** Response body of `POST {host.apiOrigin}/api/v1/files/touch`. */
+export interface BonoboFilesTouchResponse {
+	files: Array<{ path: string; nodeId: string; created: boolean }>;
+}
+
+/**
+ * Request body for `POST {host.apiOrigin}/api/v1/activities/start`
+ * (`Authorization: Bearer host.token`). Opts this run into the host's workspace activity feed —
+ * strictly optional; a plugin that wants to stay invisible simply never calls it. Call it once,
+ * early in the run: a second call responds `409`. `title` is required display text (up to 120
+ * characters after trimming); pass `""` to let the host compose one from the plugin's display
+ * name and the triggering file's name. After opting in, the host tracks the rest automatically:
+ * files the run touches or writes become the activity's targets, and the activity closes with
+ * the run's final outcome.
+ */
+export interface BonoboActivitiesStartRequest {
+	title: string;
+	/**
+	 * Required prediction of how long the run's work takes, in milliseconds (max 5 minutes =
+	 * 300000; larger values respond `400`). Estimate it from the amount of work the run usually
+	 * does. If the run never finishes within this window, the host closes the activity with the
+	 * `timeout` end state.
+	 */
+	timeoutMs: number;
+}
+
+/** Response body of `POST {host.apiOrigin}/api/v1/activities/start`. */
+export interface BonoboActivitiesStartResponse {
+	activityId: string;
 }
 
 /** Type of a plugin worker's `export default` — `fetch(request, env, ctx)` with a typed `env.BONOBO`. */
