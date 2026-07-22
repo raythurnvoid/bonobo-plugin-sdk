@@ -1,8 +1,16 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { bonobo_ui_connect } from "./frontend.js";
 
 const HOST_ORIGIN = "https://host.test";
-const BRIDGE_NONCE = "nonce_1";
+const BRIDGE_NONCE = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+function set_bridge_fragment(parentOrigin = HOST_ORIGIN, bridgeNonce = BRIDGE_NONCE) {
+	window.history.replaceState(
+		null,
+		"",
+		`/#${new URLSearchParams({ parentOrigin, bridgeNonce }).toString()}`,
+	);
+}
 
 /** Simulates one host → page postMessage. */
 function post_from_host(data: unknown, origin: string = HOST_ORIGIN, source: MessageEventSource = window): void {
@@ -56,20 +64,47 @@ function answer_refresh(
 	return request.requestId;
 }
 
+beforeEach(() => {
+	set_bridge_fragment();
+});
+
 afterEach(() => {
+	window.history.replaceState(null, "", "/");
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 });
 
 describe("bonobo_ui_connect", () => {
-	test("uses a query-free ready message and accepts init only from the direct parent", async () => {
+	test("rejects a missing or malformed host bridge fragment", async () => {
+		window.history.replaceState(null, "", "/");
+		await expect(bonobo_ui_connect()).rejects.toThrow("Missing host bridge fragment");
+
+		set_bridge_fragment("ftp://host.test");
+		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge parent origin");
+
+		set_bridge_fragment("https://host.test/");
+		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge parent origin");
+
+		set_bridge_fragment(HOST_ORIGIN, "not-a-uuid");
+		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge nonce");
+
+		window.history.replaceState(
+			null,
+			"",
+			`/#${new URLSearchParams({ parentOrigin: HOST_ORIGIN, bridgeNonce: BRIDGE_NONCE, extra: "value" })}`,
+		);
+		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge fragment");
+	});
+
+	test("sends nonce-bound ready to the exact parent and accepts only its matching init", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_ui_connect();
-		expect(postSpy).toHaveBeenCalledWith({ type: "bonobo:ready" }, "*");
+		expect(postSpy).toHaveBeenCalledWith({ type: "bonobo:ready", bridgeNonce: BRIDGE_NONCE }, HOST_ORIGIN);
 
 		post_from_host(make_init({ token: "plu_wrong_source" }), HOST_ORIGIN, {} as Window);
-		post_from_host(make_init({ bridgeNonce: "", token: "plu_bad_nonce" }));
+		post_from_host(make_init({ token: "plu_wrong_origin" }), "https://wrong-host.test");
+		post_from_host(make_init({ bridgeNonce: crypto.randomUUID(), token: "plu_bad_nonce" }));
 		post_from_host(make_init({ tokenExpiresAt: Number.NaN, token: "plu_bad_shape" }));
 		post_from_host(make_init());
 		const client = await clientPromise;

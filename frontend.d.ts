@@ -1,10 +1,11 @@
 /**
- * Sent by the page to `window.parent` with `targetOrigin: "*"` once the connect listener is
- * installed. It contains no secret and tells the host the page is ready to receive
- * {@link BonoboUiInitMessage} from the direct parent.
+ * Sent by the page to `window.parent` at the exact `parentOrigin` from the URL fragment once the
+ * connect listener is installed. It tells the host this frame is ready to receive
+ * {@link BonoboUiInitMessage} and proves it read the frame's bootstrap nonce.
  */
 export interface BonoboUiReadyMessage {
 	type: "bonobo:ready";
+	bridgeNonce: string;
 }
 
 /**
@@ -28,10 +29,9 @@ export interface BonoboUiPageContext {
 
 /**
  * The host's answer to {@link BonoboUiReadyMessage}: it delivers the short-lived scoped bearer
- * token (`plu_...`) and the page context. The first init is trusted only from `window.parent`;
- * its exact `event.origin` and `bridgeNonce` are pinned for every later host message. The token
- * travels over postMessage only and is never placed in a URL. `tokenExpiresAt` is Unix epoch
- * milliseconds.
+ * token (`plu_...`) and the page context. The init is trusted only from `window.parent`, the
+ * exact `parentOrigin` from the URL fragment, and the matching frame nonce. The token travels
+ * over postMessage only and is never placed in a URL. `tokenExpiresAt` is Unix epoch milliseconds.
  */
 export interface BonoboUiInitMessage {
 	type: "bonobo:init";
@@ -106,12 +106,13 @@ export interface BonoboUiFrontendClient {
  * with the client when the host's {@link BonoboUiInitMessage} arrives.
  * `bonobo:init` messages after the first are ignored.
  *
- * Ready messages contain no secret and are retried until the host answers or the document
- * unloads. The host owns the startup deadline and replaces a failed frame; the SDK does not run
- * a competing timeout.
+ * The URL fragment must contain one canonical HTTP(S) `parentOrigin` and one UUID
+ * `bridgeNonce`. Fragments are not sent in the asset request, cache key, or referrer. Ready
+ * messages carry the nonce, target only that parent origin, and retry until the host answers or
+ * the document unloads. The host owns the startup deadline and replaces a failed frame; the SDK
+ * does not run a competing timeout.
  *
- * After init, outgoing messages are posted to the exact recorded parent origin. Incoming refresh
- * messages require that origin, `window.parent`, and the init nonce; everything else is silently
- * ignored.
+ * Every incoming message requires that origin, `window.parent`, and the fragment nonce;
+ * everything else is silently ignored.
  */
 export function bonobo_ui_connect(): Promise<BonoboUiFrontendClient>;

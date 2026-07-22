@@ -12,6 +12,7 @@
 const TOKEN_EXPIRY_MARGIN_MS = 60_000;
 const READY_RETRY_MS = 500;
 const REFRESH_DEADLINE_MS = 10_000;
+const BRIDGE_NONCE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** @param {unknown} value */
 function is_page_context(value) {
@@ -29,22 +30,60 @@ function is_page_context(value) {
 }
 
 /**
+ * Reads the host origin and frame nonce from the URL fragment. The fragment is available to the
+ * page but is not sent in the asset request, cache key, or referrer.
+ */
+function read_bridge_bootstrap() {
+	const fragment = window.location.hash.slice(1);
+	if (!fragment) {
+		throw new Error("Missing host bridge fragment — the page must be embedded by the Bonobo host app");
+	}
+
+	const params = new URLSearchParams(fragment);
+	const parentOrigins = params.getAll("parentOrigin");
+	const bridgeNonces = params.getAll("bridgeNonce");
+	if (params.size !== 2 || parentOrigins.length !== 1 || bridgeNonces.length !== 1) {
+		throw new Error("Invalid host bridge fragment");
+	}
+
+	const parentOrigin = parentOrigins[0];
+	const bridgeNonce = bridgeNonces[0];
+	let parsedParentOrigin;
+	try {
+		parsedParentOrigin = new URL(parentOrigin);
+	} catch {
+		throw new Error("Invalid host bridge parent origin");
+	}
+	if (
+		(parsedParentOrigin.protocol !== "http:" && parsedParentOrigin.protocol !== "https:") ||
+		parsedParentOrigin.origin !== parentOrigin
+	) {
+		throw new Error("Invalid host bridge parent origin");
+	}
+	if (!BRIDGE_NONCE_PATTERN.test(bridgeNonce)) {
+		throw new Error("Invalid host bridge nonce");
+	}
+
+	return { parentOrigin, bridgeNonce };
+}
+
+/**
  * Connects the page to the embedding host app. It installs one shared `message` listener (for
- * init and token responses), posts `{ type: "bonobo:ready" }` to
- * `window.parent`, and resolves with the frontend client when the host's `bonobo:init`
- * arrives. `bonobo:init` messages after the first are ignored.
+ * init and token responses), posts `{ type: "bonobo:ready", bridgeNonce }` to `window.parent`,
+ * and resolves with the frontend client when the host's `bonobo:init` arrives. `bonobo:init`
+ * messages after the first are ignored.
  *
- * The initial ready message contains no secret and uses `targetOrigin: "*"` because the page
- * does not know its host origin yet. The first valid init must come from `window.parent`; its
- * exact origin and nonce are then pinned for every refresh message. The token travels over
+ * The host puts its canonical HTTP(S) origin and a fresh frame nonce in the URL fragment. The SDK
+ * validates both before connecting, sends ready only to that exact origin, and accepts host
+ * messages only from that origin, `window.parent`, and the matching nonce. The token travels over
  * postMessage only and is never placed in a URL.
  *
  * @returns {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient>}
  */
 export async function bonobo_ui_connect() {
+	const { parentOrigin, bridgeNonce } = read_bridge_bootstrap();
+
 	// Token state — set by `bonobo:init`, updated by `bonobo:token`.
-	let parentOrigin = "";
-	let bridgeNonce = "";
 	let apiOrigin = "";
 	let token = "";
 	let tokenExpiresAt = 0;
@@ -152,7 +191,7 @@ export async function bonobo_ui_connect() {
 		let readyInterval;
 
 		const post_ready = () => {
-			window.parent.postMessage({ type: "bonobo:ready" }, "*");
+			window.parent.postMessage({ type: "bonobo:ready", bridgeNonce }, parentOrigin);
 		};
 
 		const stop_ready = () => {
@@ -161,7 +200,7 @@ export async function bonobo_ui_connect() {
 
 		/** @param {MessageEvent} event */
 		const handle_message = (event) => {
-			if (event.source !== window.parent) {
+			if (event.source !== window.parent || event.origin !== parentOrigin) {
 				return;
 			}
 			const message = event.data;
@@ -171,8 +210,7 @@ export async function bonobo_ui_connect() {
 			if (
 				message.type === "bonobo:init" &&
 				!initialized &&
-				typeof message.bridgeNonce === "string" &&
-				message.bridgeNonce.length > 0 &&
+				message.bridgeNonce === bridgeNonce &&
 				typeof message.apiOrigin === "string" &&
 				typeof message.token === "string" &&
 				typeof message.tokenExpiresAt === "number" &&
@@ -182,15 +220,12 @@ export async function bonobo_ui_connect() {
 				initialized = true;
 				stop_ready();
 				window.removeEventListener("pagehide", stop_ready);
-				parentOrigin = event.origin;
-				bridgeNonce = message.bridgeNonce;
 				apiOrigin = message.apiOrigin;
 				token = message.token;
 				tokenExpiresAt = message.tokenExpiresAt;
 				resolve({ context: message.context, apiOrigin, getToken, refreshToken, fetchJson });
 			} else if (
 				initialized &&
-				event.origin === parentOrigin &&
 				message.bridgeNonce === bridgeNonce &&
 				message.type === "bonobo:token" &&
 				typeof message.requestId === "string" &&
@@ -208,7 +243,6 @@ export async function bonobo_ui_connect() {
 				}
 			} else if (
 				initialized &&
-				event.origin === parentOrigin &&
 				message.bridgeNonce === bridgeNonce &&
 				message.type === "bonobo:token-error" &&
 				typeof message.requestId === "string" &&
