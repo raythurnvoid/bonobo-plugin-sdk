@@ -112,7 +112,7 @@ A plugin frontend is trusted with the token and every datum its accepted permiss
 | host → page | `bonobo:token`                 | `bridgeNonce`, `requestId`, `token`, `tokenExpiresAt`                                                                                       |
 | host → page | `bonobo:token-error`           | `bridgeNonce`, `requestId`, `message`                                                                                                       |
 
-`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side. Before connecting, it requires exactly one canonical HTTP(S) `parentOrigin` and one UUID `bridgeNonce` in the URL fragment. It sends ready with that nonce to the exact parent origin and retries until init or document unload. Every host message must come from `window.parent`, that exact origin, and the matching nonce. The host still posts to the opaque iframe with `targetOrigin: "*"`, because an opaque receiver has no concrete target origin. The host owns the startup deadline.
+`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side. Before connecting, it requires exactly one canonical HTTP(S) `parentOrigin` and one UUIDv4 `bridgeNonce` in the URL fragment. It sends ready with that nonce to the exact parent origin and retries until init or document unload. Every host message must come from `window.parent`, that exact origin, and the matching nonce. The host still posts to the opaque iframe with `targetOrigin: "*"`, because an opaque receiver has no concrete target origin. The host owns the startup deadline.
 
 ### UI token API surface
 

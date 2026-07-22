@@ -106,7 +106,7 @@ export interface BonoboUiFrontendClient {
  * with the client when the host's {@link BonoboUiInitMessage} arrives.
  * `bonobo:init` messages after the first are ignored.
  *
- * The URL fragment must contain one canonical HTTP(S) `parentOrigin` and one UUID
+ * The URL fragment must contain one canonical HTTP(S) `parentOrigin` and one UUIDv4
  * `bridgeNonce`. Fragments are not sent in the asset request, cache key, or referrer. Ready
  * messages carry the nonce, target only that parent origin, and retry until the host answers or
  * the document unloads. The host owns the startup deadline and replaces a failed frame; the SDK
