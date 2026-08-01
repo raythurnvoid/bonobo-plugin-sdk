@@ -18,8 +18,9 @@ export interface BonoboUiTokenRefreshRequestMessage {
 	requestId: string;
 }
 
-/** `context` of {@link BonoboUiInitMessage} — which plugin page is embedded and for which workspace. */
+/** `context` of {@link BonoboUiInitMessage} when a plugin page is embedded. */
 export interface BonoboUiPageContext {
+	kind: "page";
 	pluginName: string;
 	pageId: string;
 	pageTitle: string;
@@ -28,8 +29,31 @@ export interface BonoboUiPageContext {
 }
 
 /**
+ * `context` of {@link BonoboUiInitMessage} when a plugin file view is embedded — the host opened
+ * this frame for one stored file whose content type matched the view's declared list.
+ */
+export interface BonoboUiFileViewContext {
+	kind: "file_view";
+	pluginName: string;
+	fileViewId: string;
+	fileViewTitle: string;
+	organizationId: string;
+	workspaceId: string;
+	/** The stored file the view was opened for. `contentType` is the matched stored content type. */
+	file: {
+		fileNodeId: string;
+		name: string;
+		path: string;
+		contentType: string;
+	};
+}
+
+/** `context` of {@link BonoboUiInitMessage} — discriminated by `kind`. */
+export type BonoboUiContext = BonoboUiPageContext | BonoboUiFileViewContext;
+
+/**
  * The host's answer to {@link BonoboUiReadyMessage}: it delivers the short-lived scoped bearer
- * token (`plu_...`) and the page context. The init is trusted only from `window.parent`, the
+ * token (`plu_...`) and the embedding context. The init is trusted only from `window.parent`, the
  * exact `parentOrigin` from the URL fragment, and the matching frame nonce. The token travels
  * over postMessage only and is never placed in a URL. `tokenExpiresAt` is Unix epoch milliseconds.
  */
@@ -39,7 +63,7 @@ export interface BonoboUiInitMessage {
 	apiOrigin: string;
 	token: string;
 	tokenExpiresAt: number;
-	context: BonoboUiPageContext;
+	context: BonoboUiContext;
 }
 
 /**
@@ -63,14 +87,15 @@ export interface BonoboUiTokenErrorMessage {
 }
 
 /**
- * The connected plugin-page client resolved by {@link bonobo_ui_connect}. With the
- * `workspace.files.read` capability the UI token carries the `files:list`, `files:read`, and
- * `files:download` scopes for `POST /api/v1/files/list`, `POST /api/v1/files/read`, and
- * `POST /api/v1/files/download-urls`. UI tokens are always rejected on `/api/v1/files/write`.
+ * The connected plugin frontend client resolved by {@link bonobo_ui_connect}, for plugin pages
+ * and plugin file views alike. With the `workspace.files.read` capability the UI token carries
+ * the `files:list`, `files:read`, and `files:download` scopes for `POST /api/v1/files/list`,
+ * `POST /api/v1/files/read`, and `POST /api/v1/files/download-urls`. UI tokens are always
+ * rejected on `/api/v1/files/write`.
  */
 export interface BonoboUiFrontendClient {
-	/** The {@link BonoboUiInitMessage} context. */
-	context: BonoboUiPageContext;
+	/** The {@link BonoboUiInitMessage} context. Narrow on `context.kind` before using kind-specific fields. */
+	context: BonoboUiContext;
 	/** Origin of the public host API — `fetchJson` prefixes it onto `path`. */
 	apiOrigin: string;
 	/**

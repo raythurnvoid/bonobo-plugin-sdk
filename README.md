@@ -1,6 +1,6 @@
 # Bonobo Plugin SDK
 
-SDK for Bonobo workspace plugins. The root export is types-only (a single hand-written `index.d.ts` built on `@cloudflare/workers-types`) — plugin workers are plain Cloudflare-style JS typed via JSDoc. The `bonobo-plugin-sdk/frontend` export adds a small hand-written browser ESM runtime for plugin UI pages (see [Frontend pages](#frontend-pages)).
+SDK for Bonobo workspace plugins. The root export is types-only (a single hand-written `index.d.ts` built on `@cloudflare/workers-types`) — plugin workers are plain Cloudflare-style JS typed via JSDoc. The `bonobo-plugin-sdk/frontend` export adds a small hand-written browser ESM runtime for plugin UI pages and file views (see [Frontend pages](#frontend-pages)).
 
 ## Capabilities
 
@@ -8,9 +8,35 @@ A plugin manifest declares at most three capabilities (`BonoboCapability`), whic
 
 - `plugin.secrets.read` — `env.BONOBO.secrets.get(name)` resolves the publisher secret (or the workspace's shadowing installation secret) or `null`.
 - `outbound.fetch` — native `fetch` to third-party HTTPS origins listed in the manifest's outbound origins.
-- `workspace.files.read` — grants plugin UI pages read access to workspace files: the page's UI token carries the `files:list`, `files:read`, and `files:download` scopes. Frontend-only; it never applies to backend runs.
+- `workspace.files.read` — grants plugin UI frontends (pages and file views) read access to workspace files: the frame's UI token carries the `files:list`, `files:read`, and `files:download` scopes. Frontend-only; it never applies to backend runs.
 
 The host APIs below need no capability: requests to `env.BONOBO.host.apiOrigin` are always allowed.
+
+## Installation configuration
+
+A plugin may declare a YAML editor and attach generic filters to its events. The YAML shape belongs to the plugin. The host only parses it as a JSON-like object and validates values referenced by declared filters.
+
+```jsonc
+"configuration": {
+	"description": "Choose which upload folders start this plugin.",
+	"defaultYaml": "routing:\n  allowedFolders:\n    - /\n"
+},
+"events": [
+	{
+		"type": "files.upload.completed",
+		"contentTypes": ["image/png"],
+		"filters": [
+			{
+				"field": "source.path",
+				"operator": "pathIsUnderAny",
+				"configurationPath": ["routing", "allowedFolders"]
+			}
+		]
+	}
+]
+```
+
+`source.path` + `pathIsUnderAny` expects up to 32 unique canonical absolute folder paths at `configurationPath`. `/` matches every folder, a folder matches its descendants, and an empty list disables that automatic event. Manual runs do not apply automatic event filters. The parsed YAML object is available to every backend run as `event.configuration`; it is `null` when the plugin has no configuration declaration.
 
 ## Public host APIs
 
@@ -98,6 +124,23 @@ A manifest may declare UI pages the host app embeds:
 - `entry` — must be a manifest `files[]` entry with contentType `"text/html"`.
 - `navItem` (optional) — its presence contributes a main-sidebar nav item in the host app: `label` is 1–40 characters, `icon` an optional lucide kebab-case name matching `/^[a-z0-9-]{1,64}$/`. The host currently renders only `images`, `image`, `film`, and `gallery-vertical-end`; any other name publishes fine but falls back to a generic puzzle icon (the supported set can grow without a manifest change).
 
+### File views
+
+A manifest may also declare file views — frames the host app opens instead of the stored-file details card when a workspace member opens a matching file:
+
+```jsonc
+"fileViews": [
+	{ "id": "player", "title": "Video player", "entry": "dist/frontend/index.html", "contentTypes": ["video/mp4", "video/webm"] }
+]
+```
+
+- `id` — same rules as page ids and shares their namespace: unique across `pages` and `fileViews` together.
+- `title` — 1–80 characters. The host shows it in the view bar and the "Open in <title>" button.
+- `entry` — must be a manifest `files[]` entry with contentType `"text/html"`. Pages and file views may share one entry.
+- `contentTypes` — 1–32 exact stored content types (each at most 255 characters) matched against the opened file's stored content type. No wildcards. One manifest may not declare the same content type in two file views, and may declare at most 8 file views with at most 64 content types in total.
+- When several installed plugins match one content type, the host opens the view from the earliest installation.
+- The host mints the view's session only for files the member can read, and only after the file's upload pipeline is complete.
+
 ### Sandbox and token model
 
 The host loads `entry` at its immutable asset URL in an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page runs with an opaque origin. The asset URL keeps an empty query. Its fragment carries only the host's canonical HTTP(S) origin and a fresh per-frame nonce; fragments are not sent in the asset request, cache key, or referrer. Page and host use one strict postMessage contract: the page first sends the nonce-bound ready message, then receives page context and a short-lived scoped bearer token (`plu_...`) in `bonobo:init`. Tokens and context never appear in a URL. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
@@ -108,7 +151,7 @@ A plugin frontend is trusted with the token and every datum its accepted permiss
 | ----------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | page → host | `bonobo:ready`                 | `bridgeNonce`                                                                                                                               |
 | page → host | `bonobo:token-refresh-request` | `bridgeNonce`, `requestId`                                                                                                                  |
-| host → page | `bonobo:init`                  | `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context: { pluginName, pageId, pageTitle, organizationId, workspaceId }` |
+| host → page | `bonobo:init`                  | `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context` (union on `kind`: `"page"` carries `{ pluginName, pageId, pageTitle, organizationId, workspaceId }`; `"file_view"` carries `{ pluginName, fileViewId, fileViewTitle, organizationId, workspaceId, file: { fileNodeId, name, path, contentType } }`) |
 | host → page | `bonobo:token`                 | `bridgeNonce`, `requestId`, `token`, `tokenExpiresAt`                                                                                       |
 | host → page | `bonobo:token-error`           | `bridgeNonce`, `requestId`, `message`                                                                                                       |
 
@@ -139,7 +182,10 @@ Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentT
 import { bonobo_ui_connect } from "bonobo-plugin-sdk/frontend";
 
 const client = await bonobo_ui_connect();
-document.title = client.context.pageTitle;
+// context is a union — narrow on kind before using kind-specific fields.
+if (client.context.kind === "page") {
+	document.title = client.context.pageTitle;
+}
 
 // files:list — contentTypePrefixes is post-filtered per page, so a short or even empty page
 // does not mean the listing is done. Scan wide (limit 100, kind "file"), cap how many source

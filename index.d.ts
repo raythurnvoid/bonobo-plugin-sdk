@@ -77,6 +77,15 @@ export interface BonoboUploadSource {
 	size: number;
 }
 
+/** A JSON value parsed from the installation's plugin-owned YAML configuration. */
+export type BonoboConfigurationValue =
+	| null
+	| boolean
+	| number
+	| string
+	| BonoboConfigurationValue[]
+	| { [key: string]: BonoboConfigurationValue };
+
 /**
  * JSON body of the `request` the worker's `fetch(request, env, ctx)` receives for an
  * upload-triggered run.
@@ -88,6 +97,8 @@ export interface BonoboUploadCompletedEvent {
 	organizationId: string;
 	workspaceId: string;
 	actorUserId: string;
+	/** Parsed installation settings, or null when the plugin does not declare configuration. */
+	configuration: BonoboConfigurationValue;
 	source: BonoboUploadSource;
 }
 

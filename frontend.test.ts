@@ -25,11 +25,30 @@ function make_init(overrides?: Record<string, unknown>) {
 		token: "plu_1",
 		tokenExpiresAt: Date.now() + 600_000,
 		context: {
+			kind: "page",
 			pluginName: "gallery",
 			pageId: "main",
 			pageTitle: "Gallery",
 			organizationId: "org_1",
 			workspaceId: "ws_1",
+		},
+		...overrides,
+	};
+}
+
+function make_file_view_context(overrides?: Record<string, unknown>) {
+	return {
+		kind: "file_view",
+		pluginName: "video-player",
+		fileViewId: "player",
+		fileViewTitle: "Video player",
+		organizationId: "org_1",
+		workspaceId: "ws_1",
+		file: {
+			fileNodeId: "node_1",
+			name: "clip.mp4",
+			path: "/clips/clip.mp4",
+			contentType: "video/mp4",
 		},
 		...overrides,
 	};
@@ -110,7 +129,24 @@ describe("bonobo_ui_connect", () => {
 		const client = await clientPromise;
 
 		expect(client.apiOrigin).toBe("https://api.test");
-		expect(client.context.pageTitle).toBe("Gallery");
+		expect(client.context.kind === "page" && client.context.pageTitle).toBe("Gallery");
+		await expect(client.getToken()).resolves.toBe("plu_1");
+	});
+
+	test("accepts a file-view context and rejects contexts with a missing or unknown kind", async () => {
+		spy_on_post_message();
+		const clientPromise = bonobo_ui_connect();
+
+		post_from_host(make_init({ context: make_file_view_context({ kind: undefined }), token: "plu_no_kind" }));
+		post_from_host(make_init({ context: make_file_view_context({ kind: "backend" }), token: "plu_bad_kind" }));
+		post_from_host(make_init({ context: make_file_view_context({ file: undefined }), token: "plu_no_file" }));
+		post_from_host(
+			make_init({ context: make_file_view_context({ file: { fileNodeId: "node_1" } }), token: "plu_bad_file" }),
+		);
+		post_from_host(make_init({ context: make_file_view_context() }));
+		const client = await clientPromise;
+
+		expect(client.context).toEqual(make_file_view_context());
 		await expect(client.getToken()).resolves.toBe("plu_1");
 	});
 
