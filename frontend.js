@@ -123,7 +123,9 @@ export async function bonobo_ui_connect() {
 	// Plugin-data bridge state — watch registrations route matching `bonobo:data-update` messages,
 	// and the two pending maps correlate write and member-resolve requests with their `-result`
 	// answers. A `_nay` result resolves (it is passed through as-is); only the deadline rejects.
-	/** @type {Map<string, (docs: import("bonobo-plugin-sdk").PublicDoc[] | null) => void>} */
+	// The `kind` decides the update payload shape: a plain watch delivers the docs array, a
+	// window delivers `{ docs, hasMore, atCapacity, incomplete }`. Death is a bare `null` for both.
+	/** @type {Map<string, { kind: "plain" | "window", deliver: (update: any, info?: import("bonobo-plugin-sdk/frontend").BonoboUiWatchDeathInfo) => void }>} */
 	const watch_registrations = new Map();
 	/** @type {Map<string, { resolve: (result: import("bonobo-plugin-sdk/frontend").BonoboUiDataWriteResult) => void, timeout: ReturnType<typeof setTimeout> }>} */
 	const pending_data_writes = new Map();
@@ -259,9 +261,11 @@ export async function bonobo_ui_connect() {
 
 	/**
 	 * Posts one `bonobo:data-user-write` and resolves with the correlated
-	 * `bonobo:data-user-write-result` `result` as-is, `_yay` and `_nay` alike.
+	 * `bonobo:data-user-write-result` `result` as-is, `_yay` and `_nay` alike. The runtime passes
+	 * the result through without checking it, so each caller casts this shared promise to its
+	 * op's result type — that narrowing is the host-door contract, not a runtime guarantee.
 	 *
-	 * @param {{ op: "append" | "put" | "remove" | "putOwned" | "removeOwned", collection: string, keyPrefix?: string, key?: string, value?: object, clientRequestId?: string }} fields
+	 * @param {{ op: "append" | "put" | "remove" | "putOwned" | "removeOwned", collection: string, keyPrefix?: string, key?: string, value?: object, clientRequestId?: string, expectedRevision?: number }} fields
 	 */
 	function post_data_user_write(fields) {
 		const requestId = crypto.randomUUID();
@@ -277,7 +281,7 @@ export async function bonobo_ui_connect() {
 	const data = {
 		watch(opts, onUpdate) {
 			const subscriptionId = crypto.randomUUID();
-			watch_registrations.set(subscriptionId, onUpdate);
+			watch_registrations.set(subscriptionId, { kind: "plain", deliver: onUpdate });
 			window.parent.postMessage(
 				{
 					type: "bonobo:data-watch",
@@ -298,26 +302,92 @@ export async function bonobo_ui_connect() {
 				window.parent.postMessage({ type: "bonobo:data-unwatch", bridgeNonce, subscriptionId }, parentOrigin);
 			};
 		},
+		watchWindow(opts, onUpdate) {
+			const subscriptionId = crypto.randomUUID();
+			watch_registrations.set(subscriptionId, { kind: "window", deliver: onUpdate });
+			window.parent.postMessage(
+				{
+					type: "bonobo:data-watch-window",
+					bridgeNonce,
+					subscriptionId,
+					collection: opts.collection,
+					...(opts.keyPrefix === undefined ? {} : { keyPrefix: opts.keyPrefix }),
+					pageSize: opts.pageSize,
+				},
+				parentOrigin,
+			);
+			return {
+				loadOlder() {
+					// A dead or unsubscribed window posts nothing; the host would ignore it anyway.
+					if (!watch_registrations.has(subscriptionId)) {
+						return;
+					}
+					window.parent.postMessage(
+						{ type: "bonobo:data-window-load-older", bridgeNonce, subscriptionId },
+						parentOrigin,
+					);
+				},
+				unsubscribe() {
+					// Same discipline as the plain watch's unsubscribe above.
+					if (!watch_registrations.delete(subscriptionId)) {
+						return;
+					}
+					window.parent.postMessage({ type: "bonobo:data-unwatch", bridgeNonce, subscriptionId }, parentOrigin);
+				},
+			};
+		},
 		append(opts) {
-			return post_data_user_write({
-				op: "append",
-				collection: opts.collection,
-				...(opts.keyPrefix === undefined ? {} : { keyPrefix: opts.keyPrefix }),
-				value: opts.value,
-				...(opts.clientRequestId === undefined ? {} : { clientRequestId: opts.clientRequestId }),
-			});
+			return /** @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiDataAppendResult>} */ (
+				post_data_user_write({
+					op: "append",
+					collection: opts.collection,
+					...(opts.keyPrefix === undefined ? {} : { keyPrefix: opts.keyPrefix }),
+					value: opts.value,
+					...(opts.clientRequestId === undefined ? {} : { clientRequestId: opts.clientRequestId }),
+				})
+			);
 		},
 		put(opts) {
-			return post_data_user_write({ op: "put", collection: opts.collection, key: opts.key, value: opts.value });
+			return /** @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiDataPutResult>} */ (
+				post_data_user_write({
+					op: "put",
+					collection: opts.collection,
+					key: opts.key,
+					value: opts.value,
+					...(opts.expectedRevision === undefined ? {} : { expectedRevision: opts.expectedRevision }),
+				})
+			);
 		},
 		remove(opts) {
-			return post_data_user_write({ op: "remove", collection: opts.collection, key: opts.key });
+			return /** @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiDataRemoveResult>} */ (
+				post_data_user_write({
+					op: "remove",
+					collection: opts.collection,
+					key: opts.key,
+					...(opts.expectedRevision === undefined ? {} : { expectedRevision: opts.expectedRevision }),
+				})
+			);
 		},
 		putOwned(opts) {
-			return post_data_user_write({ op: "putOwned", collection: opts.collection, key: opts.key, value: opts.value });
+			return /** @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiDataPutOwnedResult>} */ (
+				post_data_user_write({
+					op: "putOwned",
+					collection: opts.collection,
+					key: opts.key,
+					value: opts.value,
+					...(opts.expectedRevision === undefined ? {} : { expectedRevision: opts.expectedRevision }),
+				})
+			);
 		},
 		removeOwned(opts) {
-			return post_data_user_write({ op: "removeOwned", collection: opts.collection, key: opts.key });
+			return /** @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiDataRemoveResult>} */ (
+				post_data_user_write({
+					op: "removeOwned",
+					collection: opts.collection,
+					key: opts.key,
+					...(opts.expectedRevision === undefined ? {} : { expectedRevision: opts.expectedRevision }),
+				})
+			);
 		},
 	};
 
@@ -411,15 +481,35 @@ export async function bonobo_ui_connect() {
 				typeof message.subscriptionId === "string" &&
 				(message.docs === null || Array.isArray(message.docs))
 			) {
-				const deliver = watch_registrations.get(message.subscriptionId);
-				if (deliver) {
+				const registration = watch_registrations.get(message.subscriptionId);
+				if (registration) {
 					// A null update means the host killed the subscription and already dropped it.
 					// Deliver the null once and drop the registration, so a later unsubscribe is a
-					// no-op and later updates for this id are ignored.
+					// no-op and later updates for this id are ignored. The host may say why it
+					// refused (`reason`/`message`); pass that along without requiring it.
 					if (message.docs === null) {
 						watch_registrations.delete(message.subscriptionId);
+						// Pass the info argument only when the host explained the death, so a bare
+						// death keeps delivering exactly one argument like it did before 0.8.0.
+						const info = {
+							...(typeof message.reason === "string" ? { reason: message.reason } : {}),
+							...(typeof message.message === "string" ? { message: message.message } : {}),
+						};
+						if (Object.keys(info).length > 0) {
+							registration.deliver(null, info);
+						} else {
+							registration.deliver(null);
+						}
+					} else if (registration.kind === "window") {
+						registration.deliver({
+							docs: message.docs,
+							hasMore: message.hasMore === true,
+							atCapacity: message.atCapacity === true,
+							incomplete: message.incomplete === true,
+						});
+					} else {
+						registration.deliver(message.docs);
 					}
-					deliver(message.docs);
 				}
 			} else if (
 				initialized &&

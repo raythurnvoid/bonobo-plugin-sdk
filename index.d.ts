@@ -233,16 +233,24 @@ export interface BonoboActivitiesStartResponse {
 
 /**
  * One document from the plugin's own document store, as every read surface returns it: the
- * `/api/v1/plugin-data/*` read and list routes and the frontend bridge's `data.watch` updates
- * alike. `revision` grows by one on every accepted write. `ownership` is `"owned"` when only the
- * member in `createdBy` may change or delete the document through interactive writers; `"shared"`
- * documents follow the normal write rule. `createdAt` and `updatedAt` are Unix epoch milliseconds.
+ * `/api/v1/plugin-data/*` read and list routes and the frontend bridge's `data.watch` and
+ * `data.watchWindow` updates alike. `revision` grows by one on every accepted write and restarts
+ * at 1 when a deleted key is created again. `ownership` is `"owned"` when only the member in
+ * `createdBy` may change or delete the document through interactive writers; `"shared"` documents
+ * follow the normal write rule. `writeMode` is `"versioned"` for documents a service producer
+ * writes through the versioned route; interactive writers cannot touch those. `byteSize` is the
+ * stored value's canonical JSON size in bytes. `createdAt` and `updatedAt` are Unix epoch
+ * milliseconds.
+ *
+ * Renamed from `PublicDoc` in 0.8.0, matching the `Bonobo*` prefix of every other exported type.
  */
-export interface PublicDoc {
+export interface BonoboPublicDoc {
 	collection: string;
 	key: string;
 	value: Record<string, unknown>;
 	revision: number;
+	byteSize: number;
+	writeMode: "normal" | "versioned";
 	createdBy: string;
 	updatedBy: string;
 	ownership: "shared" | "owned";
