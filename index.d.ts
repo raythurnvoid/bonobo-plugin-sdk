@@ -5,11 +5,41 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
 
 /**
  * The capabilities a plugin manifest may declare and a workspace consents to on install.
- * `workspace.files.read` gives the plugin's UI pages read access to workspace files — it puts
- * the `files:list`, `files:read`, and `files:download` scopes on the page's UI token. It never
- * applies to backend runs.
+ *
+ * Capabilities may authorize more than one caller. Each entry names all current callers:
+ * The current host exchange is Council-only; no other plugin can obtain a service grant yet.
+ *
+ * - `plugin.secrets.read` — the backend run may call `env.BONOBO.secrets.get(name)`.
+ * - `outbound.fetch` — the backend run may `fetch` the manifest's `outboundOrigins`.
+ * - `workspace.files.read` — the plugin's UI pages and file views may read workspace files. It
+ *   puts the `files:list`, `files:read`, and `files:download` scopes on the page's UI token. It
+ *   never applies to backend runs.
+ * - `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant,
+ *   capped by an exact destination path prefix. It reaches neither the backend run nor the page.
+ *   The interactive exchange never mints that scope; the Council service gets it through the
+ *   seal-processing route, and only the `/api/v1/files/service-uploads/*` routes accept it.
+ * - `plugin.data.read` — backend runs, UI pages and file views, and eligible Council service grants
+ *   may read the plugin's own document store.
+ * - `plugin.data.write` — backend runs and eligible Council service grants may write the plugin's own
+ *   document store. A page token never receives the write scope, whatever the installation
+ *   accepted.
+ * - `plugin.service.connect` — lets a Council page UI token participate in the service-grant
+ *   exchange, but grants no API scope itself. The Council service must also authenticate with its
+ *   configured service secret. Declaring it requires `plugin.data.read` or `workspace.files.write`
+ *   as well, because a grant that carries no scope buys the service nothing.
+ * - `ui.outbound.fetch` — the page, running in the member's browser, may call the manifest's
+ *   `uiOutboundOrigins`. It is enforced as `connect-src` in the page's CSP. It and
+ *   `uiOutboundOrigins` require each other: neither may be declared alone.
  */
-export type BonoboCapability = "plugin.secrets.read" | "outbound.fetch" | "workspace.files.read";
+export type BonoboCapability =
+	| "plugin.secrets.read"
+	| "outbound.fetch"
+	| "workspace.files.read"
+	| "workspace.files.write"
+	| "plugin.data.read"
+	| "plugin.data.write"
+	| "plugin.service.connect"
+	| "ui.outbound.fetch";
 
 /**
  * Optional `navItem` of a manifest `pages[]` entry ({@link BonoboManifestPage}). Declaring it is
@@ -199,6 +229,25 @@ export interface BonoboActivitiesStartRequest {
 /** Response body of `POST {host.apiOrigin}/api/v1/activities/start`. */
 export interface BonoboActivitiesStartResponse {
 	activityId: string;
+}
+
+/**
+ * One document from the plugin's own document store, as every read surface returns it: the
+ * `/api/v1/plugin-data/*` read and list routes and the frontend bridge's `data.watch` updates
+ * alike. `revision` grows by one on every accepted write. `ownership` is `"owned"` when only the
+ * member in `createdBy` may change or delete the document through interactive writers; `"shared"`
+ * documents follow the normal write rule. `createdAt` and `updatedAt` are Unix epoch milliseconds.
+ */
+export interface PublicDoc {
+	collection: string;
+	key: string;
+	value: Record<string, unknown>;
+	revision: number;
+	createdBy: string;
+	updatedBy: string;
+	ownership: "shared" | "owned";
+	createdAt: number;
+	updatedAt: number;
 }
 
 /** Type of a plugin worker's `export default` — `fetch(request, env, ctx)` with a typed `env.BONOBO`. */

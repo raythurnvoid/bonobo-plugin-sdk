@@ -4,11 +4,59 @@ SDK for Bonobo workspace plugins. The root export is types-only (a single hand-w
 
 ## Capabilities
 
-A plugin manifest declares at most three capabilities (`BonoboCapability`), which a workspace consents to on install:
+A plugin manifest declares capabilities (`BonoboCapability`), which a workspace consents to on install. A capability may authorize more than one caller, so each entry below names every caller it reaches.
+
+Backend run (`fetch(request, env, ctx)`):
 
 - `plugin.secrets.read` — `env.BONOBO.secrets.get(name)` resolves the publisher secret (or the workspace's shadowing installation secret) or `null`.
-- `outbound.fetch` — native `fetch` to third-party HTTPS origins listed in the manifest's outbound origins.
-- `workspace.files.read` — grants plugin UI frontends (pages and file views) read access to workspace files: the frame's UI token carries the `files:list`, `files:read`, and `files:download` scopes. Frontend-only; it never applies to backend runs.
+- `outbound.fetch` — native `fetch` to third-party HTTPS origins listed in the manifest's `outboundOrigins`.
+- `plugin.data.read` — read the plugin's own document store.
+- `plugin.data.write` — create, change, and delete documents in that store. Declaring it also requires `plugin.data.read`.
+
+Plugin page and file view (the sandboxed iframe):
+
+- `workspace.files.read` — read access to workspace files: the frame's UI token carries the `files:list`, `files:read`, and `files:download` scopes. It never applies to backend runs.
+- `plugin.data.read` — read the plugin's own document store; the UI token carries `plugin_data:read`.
+- `ui.outbound.fetch` — the page may call the manifest's `uiOutboundOrigins`. It is enforced as `connect-src` in the page's CSP, so it is the browser that refuses anything else. This capability and `uiOutboundOrigins` require each other: neither may be declared alone. Keep it separate from `outbound.fetch` — that one is the backend, this one is a page holding a member's session token.
+
+Service grant (Council only today):
+
+The current host exchange is bound to Council. Other plugins cannot obtain a service grant yet.
+
+- `plugin.service.connect` — lets a Council page UI token participate in the exchange, but grants no API scope itself. The Council service must also authenticate with its configured service secret. Declaring it requires `plugin.data.read` or `workspace.files.write`, because a grant carrying no scope buys the service nothing.
+- `plugin.data.read` — an eligible Council grant may read the plugin's own document store.
+- `plugin.data.write` — an eligible Council grant may write the plugin's document store. A page token never receives this scope, whatever the installation accepted: a page session can belong to an anonymous identity and is the surface an XSS reaches first, so a write from there would become injected input the backend later acts on with its secrets.
+- `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant, capped by an exact destination path prefix. The interactive exchange still never mints this scope; the service gets it by sealing (below). Only the `/api/v1/files/service-uploads/*` routes accept it — the generic `/api/v1/files/*` routes still refuse service grants.
+
+### Grant lifecycle and service upload routes (Council service only)
+
+An interactive grant comes from `POST /api/internal/plugins/service-grants/exchange` (page token + service secret) and carries `plugin_data:read` and `plugin_data:write` for one working day, renewable. When a meeting closes, the service seals it:
+
+- `POST /api/internal/plugins/service-grants/seal-processing` — service secret + live interactive `psg_` bearer, body `{ destinationPathPrefix }` (a normalized absolute path of canonical lowercase folder names, not `/`). Mints a NEW processing-phase grant for the same installation and member with scopes `["plugin_data:read", "plugin_data:write", "files:write"]`, bound to exactly that prefix, expiring six days from the seal. Renewal rotates a processing token but never moves that deadline. A processing grant cannot seal again, so the window cannot roll forever. Requires all four Council capabilities and refuses if any is missing rather than minting a narrower grant.
+
+The sealed grant then drives the upload pipeline — plain `Authorization: Bearer <psg_...>` calls (no service secret header), all POST, all requiring the `files:write` scope and the `processing` phase:
+
+| Route                                       | Body                                                        | Response                                                                                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/v1/files/service-uploads/reserve`     | `{ idempotencyKey, reservedBytes, expiresAt }`              | `{ reservationId, remainingBytes, expiresAt }`                                                                                                    |
+| `/api/v1/files/service-uploads/create-target` | `{ idempotencyKey, targetKey, path, contentType, size }`  | pending: `{ state: "pending", path, nodeId, uploadUrl, headers, uploadUrlExpiresAt }`; replay after confirm: `{ state: "committed", path, nodeId, actualBytes }` |
+| `/api/v1/files/service-uploads/remint`      | `{ idempotencyKey, targetKey }`                             | same union as create-target: a fresh URL for the same staging key, or `committed` once the object is confirmed                                     |
+| `/api/v1/files/service-uploads/finalize`    | `{ idempotencyKey, targetKey }`                             | `{ state: "pending" \| "committed" \| "released", path, nodeId, actualBytes \| null }`                                                             |
+| `/api/v1/files/service-uploads/release`     | `{ idempotencyKey }`                                        | `{ releasedBytes }`                                                                                                                               |
+| `/api/v1/files/service-uploads/delete`      | `{ idempotencyKey, targetKey }`                             | `{ state: "deleting" \| "deleted", paths }`                                                                                                       |
+| `/api/v1/files/service-uploads/archive-destination` | `{}`                                                | `{ archivedNodes }`                                                                                                                               |
+
+Contract highlights:
+
+- `idempotencyKey` names the meeting's whole reservation; `targetKey` names one file in it. Replays with the same body answer the same thing; the same key with a different body answers `409`.
+- Reserve the meeting's whole byte envelope up front (at most 532 MiB per reservation) against the workspace's 10 GiB `plugin_service_storage_bytes` quota. Every target's `size` spends from the envelope, never from the quota directly.
+- Every `path` must live strictly under the sealed `destinationPathPrefix`; anything else answers `403 Path is outside this grant's destination`. Paths use the app's canonical form: lowercase folder segments, real upload file names.
+- Upload with a signed PUT to `uploadUrl` (send exactly the returned `headers`), then poll `finalize` until `state` is `"committed"`. `remint` when the 15-minute URL expired mid-retry. `finalize` answering `"released"` means the upload window is gone for good — retry under a new `targetKey`.
+- `release` when the meeting's uploads are done (or abandoned): it refunds the unspent envelope and deletes pending placeholders, while committed files stay stored and charged. An hourly host cron releases expired reservations on its own, so a crashed service does not hold the quota forever.
+- `delete` removes the committed files a `targetKey` stored, for a service that must really remove one stored file and get the bytes back. The Council delete does not use it — it archives its whole folder with `archive-destination` below. It works days later under a NEW grant sealed to the same destination — the original reservation may be long gone — and it only sees targets whose stored path is inside the presenting grant's prefix. It answers `"deleting"` immediately (file gone from the workspace, R2 deletion enqueued) and `"deleted"` once R2 confirmed the object is gone; the quota refund happens at that confirmation, not at the request. Replays keep answering; a still-pending target answers `409` (release owns those); an unknown key answers `404`.
+- `archive-destination` archives the whole destination folder, with every file still inside it, for the delete-meeting workflow. The body is empty on purpose: the seal names the folder, so the grant can never reach another one. Archiving is what "delete a file" means to a member — the folder leaves the file tree in one archive operation, so a member can restore the exact set. Stored bytes stay charged, because only `delete` removes the R2 object. A destination that was never created, or one a member already archived, answers `{ archivedNodes: 0 }`, so a replayed delete is happy. Inside the fence it obeys the same rules a member gets: a restricted folder answers `403 Permission denied`, a locked or read-only item answers `409`, and either way nothing is archived.
+- The seal validates the destination as-is and refuses non-canonical folder names with `400`. Normalize your configured folder before sealing (for example `/Meetings` → `/meetings`); the host never normalizes it for you.
+- Error statuses: `400` invalid input, `401` dead grant/installation/membership, `403` missing scope, wrong phase, destination fence, or a full quota, `404` unknown reservation or target (including another workspace's), `409` idempotency conflicts and replay-after-release.
 
 The host APIs below need no capability: requests to `env.BONOBO.host.apiOrigin` are always allowed.
 
@@ -126,7 +174,7 @@ A manifest may declare UI pages the host app embeds:
 
 ### File views
 
-A manifest may also declare file views — frames the host app opens instead of the stored-file details card when a workspace member opens a matching file:
+A manifest may also declare file views — frames the host app offers as tabs next to the stored-file details when a workspace member opens a matching file:
 
 ```jsonc
 "fileViews": [
@@ -135,27 +183,42 @@ A manifest may also declare file views — frames the host app opens instead of 
 ```
 
 - `id` — same rules as page ids and shares their namespace: unique across `pages` and `fileViews` together.
-- `title` — 1–80 characters. The host shows it in the view bar and the "Open in <title>" button.
+- `title` — 1–80 characters. The host shows it as the view's tab label and iframe title.
 - `entry` — must be a manifest `files[]` entry with contentType `"text/html"`. Pages and file views may share one entry.
 - `contentTypes` — 1–32 exact stored content types (each at most 255 characters) matched against the opened file's stored content type. No wildcards. One manifest may not declare the same content type in two file views, and may declare at most 8 file views with at most 64 content types in total.
-- When several installed plugins match one content type, the host opens the view from the earliest installation.
+- When several installed plugins match one content type, each becomes its own tab, ordered by installation time. The file details tab stays first and opens by default.
 - The host mints the view's session only for files the member can read, and only after the file's upload pipeline is complete.
 
 ### Sandbox and token model
 
-The host loads `entry` at its immutable asset URL in an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the page runs with an opaque origin. The asset URL keeps an empty query. Its fragment carries only the host's canonical HTTP(S) origin and a fresh per-frame nonce; fragments are not sent in the asset request, cache key, or referrer. Page and host use one strict postMessage contract: the page first sends the nonce-bound ready message, then receives page context and a short-lived scoped bearer token (`plu_...`) in `bonobo:init`. Tokens and context never appear in a URL. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
+The host loads `entry` at its immutable asset URL in an iframe with `sandbox="allow-scripts allow-same-origin allow-forms"`. Handle forms in JS (`onSubmit` + `preventDefault`); the page's CSP carries `form-action 'none'`, so a native HTTP form submission is always blocked by the browser. The page keeps the Convex asset origin, which is also the public API origin, so its normal JSON requests with a bearer header are same-origin and need no CORS preflight. The host app has a different origin, so the frame still cannot read the host DOM or host cookies. The asset URL keeps an empty query. Its fragment carries only the host's canonical HTTP(S) origin and a fresh per-frame nonce; fragments are not sent in the asset request, cache key, or referrer. Page and host use one strict postMessage contract: the page first sends the nonce-bound ready message, then receives page context and a short-lived scoped bearer token (`plu_...`) in `bonobo:init`. Tokens and context never appear in a URL. Secret values never reach plugin frontends — `plugin.secrets.read` is backend-only.
 
-A plugin frontend is trusted with the token and every datum its accepted permissions expose. The sandbox isolates the host DOM, cookies, and origin, but it is not a confidentiality boundary against the page code itself: page navigation can send data away before the host observes the next load and revokes the session.
+A plugin frontend is trusted with the token and every datum its accepted permissions expose. The sandbox isolates the host DOM, cookies, and origin, but it is not a confidentiality boundary against the page code itself: page navigation can send data away before the host observes the next load and revokes the session. Plugin frames share the Convex asset origin, so plugin code must not use origin storage for secrets or as a boundary from another plugin. The host mounts only one plugin frame at a time; hidden file-view frames are unmounted.
 
 | Direction   | Message                        | Fields                                                                                                                                      |
 | ----------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | page → host | `bonobo:ready`                 | `bridgeNonce`                                                                                                                               |
 | page → host | `bonobo:token-refresh-request` | `bridgeNonce`, `requestId`                                                                                                                  |
-| host → page | `bonobo:init`                  | `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context` (union on `kind`: `"page"` carries `{ pluginName, pageId, pageTitle, organizationId, workspaceId }`; `"file_view"` carries `{ pluginName, fileViewId, fileViewTitle, organizationId, workspaceId, file: { fileNodeId, name, path, contentType } }`) |
+| page → host | `bonobo:data-watch`            | `bridgeNonce`, `subscriptionId`, `collection`, `keyPrefix?`, `limit`                                                                        |
+| page → host | `bonobo:data-unwatch`          | `bridgeNonce`, `subscriptionId`                                                                                                             |
+| page → host | `bonobo:data-user-write`       | `bridgeNonce`, `requestId`, `op` (`"append" \| "put" \| "remove" \| "putOwned" \| "removeOwned"`), `collection`, `keyPrefix?`, `key?`, `value?`, `clientRequestId?` |
+| page → host | `bonobo:data-resolve-members`  | `bridgeNonce`, `requestId`, `userIds` (at most 50)                                                                                          |
+| host → page | `bonobo:init`                  | `bridgeNonce`, `apiOrigin`, `token`, `tokenExpiresAt` (epoch ms), `context` (union on `kind`: `"page"` carries `{ pluginName, userId, pageId, pageTitle, organizationId, workspaceId }`; `"file_view"` carries `{ pluginName, userId, fileViewId, fileViewTitle, organizationId, workspaceId, file: { fileNodeId, name, path, contentType } }`) |
 | host → page | `bonobo:token`                 | `bridgeNonce`, `requestId`, `token`, `tokenExpiresAt`                                                                                       |
 | host → page | `bonobo:token-error`           | `bridgeNonce`, `requestId`, `message`                                                                                                       |
+| host → page | `bonobo:data-update`           | `bridgeNonce`, `subscriptionId`, `docs` (`PublicDoc[] \| null`)                                                                             |
+| host → page | `bonobo:data-user-write-result` | `bridgeNonce`, `requestId`, `result` (`{ _yay: { key } } \| { _nay: { message } }`)                                                        |
+| host → page | `bonobo:data-resolve-members-result` | `bridgeNonce`, `requestId`, `members` (`Record<userId, displayName \| null>`)                                                         |
 
-`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side. Before connecting, it requires exactly one canonical HTTP(S) `parentOrigin` and one UUIDv4 `bridgeNonce` in the URL fragment. It sends ready with that nonce to the exact parent origin and retries until init or document unload. Every host message must come from `window.parent`, that exact origin, and the matching nonce. The host still posts to the opaque iframe with `targetOrigin: "*"`, because an opaque receiver has no concrete target origin. The host owns the startup deadline.
+`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the page side. Before connecting, it requires exactly one canonical HTTP(S) `parentOrigin` and one UUIDv4 `bridgeNonce` in the URL fragment. It sends ready with that nonce to the exact parent origin and retries until init or document unload. The host starts minting the session while the iframe assets load, but it does not send the token until this ready message proves the current frame loaded the bridge. Every host message must come from `window.parent`, that exact origin, and the matching nonce. The host posts only to the concrete Convex asset origin. The host owns the startup deadline.
+
+### Plugin data over the bridge
+
+The `bonobo:data-*` messages back the client's `data` and `members` APIs. They stay on the bridge — not on the UI token — so the host performs every read and write itself as the viewing member; a page token still never carries the plugin-data write scope.
+
+- `client.data.watch({ collection, keyPrefix?, limit }, onUpdate)` opens one reactive subscription and returns an unsubscribe function. Each `bonobo:data-update` delivers the subscription's whole current window (`PublicDoc[]`) — replace it, do not accumulate. The host caps `limit` at 100 and allows at most 8 active watches per frame. `docs: null` means the subscription is dead (authorization lost, cap exceeded, or query error): the SDK delivers the `null` once and drops the registration, so a later unsubscribe is a no-op.
+- `client.data.append/put/remove/putOwned/removeOwned` post one `bonobo:data-user-write` each and resolve with the host's `result` as-is (`{ _yay: { key } }` or `{ _nay: { message } }`); they reject only when the host does not answer within 10 seconds. `putOwned`/`removeOwned` write a member-owned document: the host stores it under `<key>:<userId>` (the `userId` from the init context), so the caller's `key` may be at most `128 - userId.length - 1` characters.
+- `client.members.resolve(userIds)` (at most 50 ids) resolves user ids to display names; a missing or deleted user maps to `null`.
 
 ### UI token API surface
 
@@ -174,7 +237,7 @@ Each of the first 20 requested files consumes one call from the route's principa
 bucket. One inaccessible file appears in `errors` without discarding the other successful URLs.
 Duplicate file IDs are rejected with `400` before they consume route capacity or start file work.
 
-Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentTypePrefixes` the server post-filters each page after pagination, so a page may come back short or even empty while `isDone` is still `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. Scan with `limit: 100` and `kind: "file"`, bound the pages advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor.
+Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentTypePrefixes`, one request uses one bounded query. `scanLimit` sets its source-doc budget; the server defaults and caps it at 10,000 docs. The query does not set a byte-read cap. A page may come back short or even empty while `isDone` is still `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. Scan with `limit: 100`, `scanLimit: 10000`, and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor.
 
 ### Frontend page example
 
@@ -187,9 +250,9 @@ if (client.context.kind === "page") {
 	document.title = client.context.pageTitle;
 }
 
-// files:list — contentTypePrefixes is post-filtered per page, so a short or even empty page
-// does not mean the listing is done. Scan wide (limit 100, kind "file"), cap how many source
-// pages one user action advances, and keep the cursor so the next action resumes; anything
+// files:list — a bounded contentTypePrefixes scan can return a short or even empty page, so
+// that does not mean the listing is done. Scan wide (limit 100, scanLimit 10000, kind "file"),
+// cap how many source pages one user action advances, and keep the cursor so the next action resumes; anything
 // fetched beyond what is shown stays buffered for that next action.
 let cursor = null;
 let isDone = false;
@@ -199,7 +262,15 @@ for (let pages = 0; images.length < 48 && !isDone && pages < 30; pages += 1) {
 	for (let attempt = 0; ; attempt += 1) {
 		try {
 			page = await client.fetchJson("/api/v1/files/list", {
-				body: { path: "/", recursive: true, kind: "file", limit: 100, contentTypePrefixes: ["image/"], cursor },
+				body: {
+					path: "/",
+					recursive: true,
+					kind: "file",
+					limit: 100,
+					scanLimit: 10_000,
+					contentTypePrefixes: ["image/"],
+					cursor,
+				},
 			});
 			break;
 		} catch (error) {
