@@ -562,6 +562,27 @@ describe("convex session jwt auth", () => {
 		await expect(jwtPromise).resolves.toBeNull();
 	});
 
+	test("a transient exchange failure retries instead of reporting unauthenticated", async () => {
+		await connect_client();
+		// One null from fetchToken is final for the Convex client, so a 429 or a network blip
+		// must be retried, not reported as "unauthenticated".
+		const { exchangeCalls } = stub_exchange([
+			new Response("slow down", { status: 429 }),
+			jwt_response("jwt_retry", Date.now() + 1_800_000),
+		]);
+
+		await expect(convex_instance().fetchToken!()).resolves.toBe("jwt_retry");
+		expect(exchangeCalls).toEqual([{ token: "plu_1" }, { token: "plu_1" }]);
+	}, 15_000);
+
+	test("a hard refusal answers null without retrying", async () => {
+		await connect_client();
+		const { fetchMock } = stub_exchange([new Response("refused", { status: 403 })]);
+
+		await expect(convex_instance().fetchToken!()).resolves.toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
 	test("a refused host refresh answers null", async () => {
 		const postSpy = spy_on_post_message();
 		await connect_client();

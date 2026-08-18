@@ -1099,29 +1099,43 @@ export async function bonobo_ui_connect() {
 	 * subscriptions die; the host frame's Retry or a reload mints a fresh session).
 	 */
 	async function fetch_convex_jwt() {
-		try {
-			let response = await exchange_session_jwt(await getToken());
-			if (response.status === 401) {
-				// The session went stale between the margin check and the exchange (for example
-				// the device slept briefly). One host refresh, one re-exchange; a second refusal
-				// means the session is gone.
-				response = await exchange_session_jwt(await refreshToken());
+		// A transient failure must not answer null: the Convex client treats one null as a final
+		// "unauthenticated" and never asks again, so a two-second network blip or a 429 from the
+		// exchange bucket would kill the page for good. Retry the transient shapes (thrown fetch,
+		// 429, 5xx) a few times before giving up; a hard refusal still answers null right away.
+		for (let attempt = 0; ; attempt += 1) {
+			/** @type {Response | null} */
+			let response = null;
+			try {
+				response = await exchange_session_jwt(await getToken());
+				if (response.status === 401) {
+					// The session went stale between the margin check and the exchange (for example
+					// the device slept briefly). One host refresh, one re-exchange; a second refusal
+					// means the session is gone.
+					response = await exchange_session_jwt(await refreshToken());
+				}
+			} catch {
+				response = null;
 			}
-			if (!response.ok) {
+
+			if (response?.ok) {
+				const body = await response.json().catch(() => null);
+				const jwt = body?._yay?.jwt;
+				const sessionExpiresAt = body?._yay?.sessionExpiresAt;
+				if (typeof jwt !== "string" || typeof sessionExpiresAt !== "number") {
+					return null;
+				}
+				// Keep the stored expiry in sync with the server's view of the session, so
+				// getToken's refresh margin stays anchored to the real session end.
+				tokenExpiresAt = sessionExpiresAt;
+				return jwt;
+			}
+
+			const transient = response === null || response.status === 429 || response.status >= 500;
+			if (!transient || attempt >= 2) {
 				return null;
 			}
-			const body = await response.json();
-			const jwt = body?._yay?.jwt;
-			const sessionExpiresAt = body?._yay?.sessionExpiresAt;
-			if (typeof jwt !== "string" || typeof sessionExpiresAt !== "number") {
-				return null;
-			}
-			// Keep the stored expiry in sync with the server's view of the session, so
-			// getToken's refresh margin stays anchored to the real session end.
-			tokenExpiresAt = sessionExpiresAt;
-			return jwt;
-		} catch {
-			return null;
+			await new Promise((resolveWait) => setTimeout(resolveWait, 1000 * (attempt + 1)));
 		}
 	}
 

@@ -300,8 +300,9 @@ export interface BonoboUiFrontendClient {
  * On init the SDK opens the page's own Convex client against the init's `convexUrl` and closes
  * it on `pagehide` — a page restored from the browser's back/forward cache stays frozen and
  * needs a reload. The client authenticates with short-lived plugin-session JWTs minted by
- * exchanging the session token at the same-origin `/plugins-ui/session-jwt` route; that
- * exchange chain also keeps the session alive while the page stays open.
+ * exchanging the session token at the same-origin `/plugins-ui/session-jwt` route. The exchange
+ * itself never extends the session; it stays alive because the SDK refreshes the session token
+ * through the host, and that host refresh extends it.
  *
  * Every incoming message requires that origin, `window.parent`, and the fragment nonce;
  * everything else is silently ignored.
