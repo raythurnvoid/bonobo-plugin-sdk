@@ -1,7 +1,7 @@
 {
 	"name": "bonobo-plugin-sdk",
 	"private": false,
-	"version": "0.8.0",
+	"version": "0.9.0",
 	"license": "Apache-2.0",
 	"types": "./index.d.ts",
 	"exports": {
@@ -16,10 +16,11 @@
 	"scripts": {
 		"test": "vitest",
 		"test:once": "vitest run --testTimeout 30000 --hookTimeout 30000 --teardownTimeout 30000",
-		"typecheck": "tsc --allowJs --checkJs --noEmit --target ES2022 --module ESNext --moduleResolution Bundler frontend.js"
+		"typecheck": "tsc --allowJs --checkJs --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck frontend.js"
 	},
 	"dependencies": {
-		"@cloudflare/workers-types": "^4.20260410.1"
+		"@cloudflare/workers-types": "^4.20260410.1",
+		"convex": "^1.42.2"
 	},
 	"devDependencies": {
 		"happy-dom": "20.0.11",
