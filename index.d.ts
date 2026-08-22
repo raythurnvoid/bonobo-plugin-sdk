@@ -18,11 +18,17 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   capped by an exact destination path prefix. It reaches neither the backend run nor the page.
  *   The interactive exchange never mints that scope; the Council service gets it through the
  *   seal-processing route, and only the `/api/v1/files/service-uploads/*` routes accept it.
+ * - `workspace.files.create-read-only` — lets the service request a direct read-only lock when it
+ *   creates a file. Declaring it also requires `workspace.files.write`.
  * - `plugin.data.read` — backend runs, UI pages and file views, and eligible Council service grants
  *   may read the plugin's own document store.
  * - `plugin.data.write` — backend runs and eligible Council service grants may write the plugin's own
  *   document store. A page token never receives the write scope, whatever the installation
  *   accepted.
+ * - `plugin.data.user-write` — the plugin's UI pages and file views may create, change, and delete
+ *   documents in that store as the acting member. The write never rides the page's UI token: it
+ *   runs through the app's own member-attributed mutations. Declaring it also requires
+ *   `plugin.data.read`.
  * - `plugin.service.connect` — lets a Council page UI token participate in the service-grant
  *   exchange, but grants no API scope itself. The Council service must also authenticate with its
  *   configured service secret. Declaring it requires `plugin.data.read` or `workspace.files.write`
@@ -36,8 +42,10 @@ export type BonoboCapability =
 	| "outbound.fetch"
 	| "workspace.files.read"
 	| "workspace.files.write"
+	| "workspace.files.create-read-only"
 	| "plugin.data.read"
 	| "plugin.data.write"
+	| "plugin.data.user-write"
 	| "plugin.service.connect"
 	| "ui.outbound.fetch";
 
