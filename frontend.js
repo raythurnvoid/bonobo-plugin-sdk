@@ -2,6 +2,11 @@
  * Bonobo plugin frontend SDK — hand-written browser ESM, no build step.
  *
  * Runs inside the host app's sandboxed plugin iframe for plugin pages and plugin file views alike.
+ * The comments below say "page" for both kinds, the way the host app's own notes do. Any text a
+ * MEMBER can end up reading must not: it has to say "plugin frame", because a member sitting in a
+ * file view is not on a page and never read these notes. That covers every `new Error(...)` the SDK
+ * rejects with, and the `message` it puts in a watch death — plugin code renders those verbatim.
+ *
  * The host handshake is a strict postMessage contract: the page announces `bonobo:ready`, the host
  * answers `bonobo:init` with a short-lived scoped session token (`plu_...`), the page context, and
  * the Convex deployment URL. From then on the page acts on its own:
@@ -34,10 +39,18 @@ const DATA_MAX_LIST_PAGE_SIZE = 100;
 // Printable ASCII only (0x21-0x7E, no space) — a literal code range for the same reason.
 const DATA_KEY_PREFIX_REGEX = /^[\x21-\x7e]+$/;
 
+// The host's roster page size. Its own ceiling, not the document one above: the roster is paged
+// because each row costs the server two document reads, and that has nothing to do with documents.
+const MEMBERS_MAX_LIST_PAGE_SIZE = 100;
+
 // Max page-visible data watches (plain or window alike). One more answers a null death with
 // reason "capacity". These caps are courtesy bounds the page enforces on itself: the server
 // cannot meter reactive reads per session, so this is what keeps an honest page bounded.
-const MAX_WATCH_SUBSCRIPTIONS = 8;
+// 16, not 8: `scopes.watchMine` tells a plugin to open one ranged read per private scope, and
+// under 8 slots that guidance died at two scopes with a channel open (three windows plus a
+// thread watch). The server-subscription ceiling below stays the real cost bound, and 16 slots
+// remain coherent under it — three fully grown windows (18) plus six plain watches is exactly 24.
+const MAX_WATCH_SUBSCRIPTIONS = 16;
 
 // Key intervals one document window may hold, committed plus pending. Worst case per window:
 // 6 intervals × 100 docs × 16 KiB values ≈ 9.6 MiB flattened; a realistic chat channel stays
@@ -48,6 +61,49 @@ const MAX_WINDOW_INTERVALS = 6;
 // committed and pending alike. Every subscription re-reads the session's auth docs when a write
 // invalidates it, so this ceiling bounds that fan-out.
 const MAX_PAGE_SERVER_SUBSCRIPTIONS = 24;
+
+/**
+ * Reads a host theme off a bridge message.
+ *
+ * The host resolves its colours and sends the values, because a plugin page is a cross-origin
+ * document and inherits none of the host's custom properties. This comes over postMessage, so every
+ * field is checked before the page can see it.
+ *
+ * @param {unknown} value
+ * @returns {import("bonobo-plugin-sdk/frontend").BonoboUiTheme | null}
+ */
+function read_theme(value) {
+	if (typeof value !== "object" || value === null) {
+		return null;
+	}
+	const candidate = /** @type {{ mode?: unknown, tokens?: unknown }} */ (value);
+	if (candidate.mode !== "light" && candidate.mode !== "dark") {
+		return null;
+	}
+	if (typeof candidate.tokens !== "object" || candidate.tokens === null) {
+		return null;
+	}
+	/** @type {Record<string, string>} */
+	const tokens = {};
+	for (const [name, tokenValue] of Object.entries(candidate.tokens)) {
+		if (typeof tokenValue !== "string") {
+			return null;
+		}
+		tokens[name] = tokenValue;
+	}
+
+	return /** @type {import("bonobo-plugin-sdk/frontend").BonoboUiTheme} */ ({ mode: candidate.mode, tokens });
+}
+
+/**
+ * The deaths the SDK can explain. The server answers the same opaque null for every denial, so
+ * these are what the SDK knows on its own: the store said no, the session it holds has run out, or
+ * the connection is not working. A page shows a different thing for each — sign in again is useless
+ * advice when the plugin was uninstalled.
+ */
+const DEATH_DENIED = { reason: "denied", message: "This plugin no longer has access to its data" };
+const DEATH_SESSION_EXPIRED = { reason: "session_expired", message: "This plugin session expired" };
+const DEATH_UNAVAILABLE = { reason: "unavailable", message: "The plugin data connection is unavailable" };
 
 /**
  * Validates the `bonobo:init` context union: `kind: "page"` or `kind: "file_view"`.
@@ -95,7 +151,7 @@ function is_ui_context(value) {
 function read_bridge_bootstrap() {
 	const fragment = window.location.hash.slice(1);
 	if (!fragment) {
-		throw new Error("Missing host bridge fragment — the page must be embedded by the Bonobo host app");
+		throw new Error("Missing host bridge fragment — this plugin frame must be embedded by the Bonobo host app");
 	}
 
 	const params = new URLSearchParams(fragment);
@@ -160,6 +216,10 @@ function validate_watch_inputs(args) {
  * @property {import("bonobo-plugin-sdk").BonoboPublicDoc[] | null} docs
  * @property {boolean} truncated
  * @property {string | undefined} previousFirstKey
+ * @property {import("bonobo-plugin-sdk").BonoboPublicDoc[] | null} previousDocs The array this
+ *   interval held before its latest delivery. `handle_result` overwrites `docs` in place, so the
+ *   outgoing array has to be kept here or it is gone by the time a swap is decided. Read in exactly
+ *   one place — `snapshot_suppressed_docs`, when a pending swap starts.
  * @property {() => void} stop Dispose the watcher and release its server slot, exactly once.
  */
 
@@ -201,16 +261,24 @@ function validate_watch_inputs(args) {
  *   start_watch: DataStartWatch,
  *   acquire_server_slot: () => boolean,
  *   release_server_slot: () => void,
- *   page_at_ceiling: () => boolean,
+ *   page_at_ceiling: (requiredSlots?: number) => boolean,
  *   post_update: (payload: { docs: import("bonobo-plugin-sdk").BonoboPublicDoc[], hasMore: boolean, atCapacity: boolean, incomplete: boolean }) => void,
- *   on_dead: () => void,
+ *   on_dead: (info: { reason: string, message: string }) => void,
+ *   session_expired: () => boolean,
  * }} deps
  */
 function create_documents_window(deps) {
 	const state = {
 		/** @type {DocumentsWindowInterval[]} */
 		intervals: [],
-		/** @type {{ from: number, removeCount: number, replacements: DocumentsWindowInterval[] } | null} */
+		/**
+		 * `suppressedDocs` holds one flatten source per interval the swap suppresses, taken by value
+		 * when the swap starts and never updated afterwards. The suppressed intervals stay subscribed
+		 * until the commit, so without it a second delivery overwrites their `docs` and the flatten
+		 * grows a hole that `incomplete` is suppressed for.
+		 *
+		 * @type {{ from: number, removeCount: number, replacements: DocumentsWindowInterval[], suppressedDocs: (import("bonobo-plugin-sdk").BonoboPublicDoc[] | null)[] } | null}
+		 */
 		pending: null,
 		queuedLoadOlder: false,
 		/** Sticky: set on the first re-seat, when older docs are first known to exist. */
@@ -237,12 +305,13 @@ function create_documents_window(deps) {
 		state.pending = null;
 	};
 
-	const kill = () => {
+	/** @param {{ reason: string, message: string }} info */
+	const kill = (info) => {
 		if (state.dead) {
 			return;
 		}
 		stop_all();
-		deps.on_dead();
+		deps.on_dead(info);
 	};
 
 	/** @param {DocumentsWindowInterval} interval */
@@ -310,8 +379,54 @@ function create_documents_window(deps) {
 
 	const window_interval_count = () => state.intervals.length + (state.pending?.replacements.length ?? 0);
 
+	/**
+	 * The count the window will hold once the pending swap commits. `window_interval_count` is the
+	 * gross count — it counts the replacements while their parents are still committed — which is
+	 * what `reconcile` and the load-older reservation need, because those are asking whether another
+	 * subscription fits right now. `incomplete` asks a different question: whether a repair is still
+	 * possible after this swap lands, so it needs the net count. A split is +1 and a merge is -1.
+	 */
+	const settled_interval_count = () =>
+		state.intervals.length + (state.pending ? state.pending.replacements.length - state.pending.removeCount : 0);
+
+	/**
+	 * The flatten source for an interval a pending swap suppresses, taken once by value when the swap
+	 * starts. `interval.truncated` is the discriminator, and the two cases need opposite answers. A
+	 * split parent is truncated by construction, so its live array is the short one that would show a
+	 * hole — serve the array it held before that delivery. A merge member is never truncated: it
+	 * shrank because documents were physically deleted, so its live array is correct and serving the
+	 * retained one would put deleted documents back on screen for a round trip.
+	 *
+	 * The fallback covers an interval whose FIRST delivery truncated, which has no previous array.
+	 * Serving `[]` there would make every document in its range vanish for a round trip, which is the
+	 * failure this whole mechanism exists to prevent, so it declines to improve that case instead.
+	 *
+	 * @param {DocumentsWindowInterval} interval
+	 */
+	const snapshot_suppressed_docs = (interval) =>
+		interval.truncated ? (interval.previousDocs ?? interval.docs) : interval.docs;
+
+	/**
+	 * @param {number} index
+	 * @returns {import("bonobo-plugin-sdk").BonoboPublicDoc[] | null | undefined} The snapshot when a
+	 *   pending swap suppresses this index, `undefined` when it does not.
+	 */
+	const suppressed_docs_at = (index) => {
+		if (!state.pending) {
+			return undefined;
+		}
+		const offset = index - state.pending.from;
+		if (offset < 0 || offset >= state.pending.removeCount) {
+			return undefined;
+		}
+		return state.pending.suppressedDocs[offset];
+	};
+
 	const compute_payload = () => {
-		const docs = state.intervals.flatMap((interval) => interval.docs ?? []);
+		const docs = state.intervals.flatMap((interval, index) => {
+			const suppressed = suppressed_docs_at(index);
+			return (suppressed === undefined ? interval.docs : suppressed) ?? [];
+		});
 		const last = state.intervals[state.intervals.length - 1];
 		// Full coverage of the remaining range holds only in the terminal state "unbounded tail
 		// delivered non-truncated". An undelivered tail still counts as more-to-come.
@@ -329,10 +444,13 @@ function create_documents_window(deps) {
 			if (state.pending && index >= state.pending.from && index < state.pending.from + state.pending.removeCount) {
 				return false;
 			}
+			// Past this point the interval IS a split candidate, so both terms below ask whether
+			// `reconcile` could actually run that split. It needs one net interval slot and TWO server
+			// slots, because it starts `left` and `right` while the parent is still subscribed.
 			return (
 				split_fencepost(interval) === null ||
-				window_interval_count() + 1 > MAX_WINDOW_INTERVALS ||
-				deps.page_at_ceiling()
+				settled_interval_count() + 1 > MAX_WINDOW_INTERVALS ||
+				deps.page_at_ceiling(2)
 			);
 		});
 		return { docs, hasMore, atCapacity, incomplete };
@@ -388,9 +506,11 @@ function create_documents_window(deps) {
 		// new closed range, so carrying the flag over would read as a hole that is not there.
 		interval.truncated = false;
 		state.bottomOpen = true;
-		// The stop above released a slot, so this 1-for-1 restart cannot hit the ceiling.
+		// The stop above released a slot, so this 1-for-1 restart cannot hit the ceiling. The only
+		// way it still fails is a throwing client, so this is the connection and never the cap —
+		// telling the member to close a window would be advice that cannot help.
 		if (!start_interval(interval)) {
-			kill();
+			kill(DEATH_UNAVAILABLE);
 		}
 	};
 
@@ -418,6 +538,7 @@ function create_documents_window(deps) {
 			docs: null,
 			truncated: false,
 			previousFirstKey: undefined,
+			previousDocs: null,
 			stop: () => {},
 		};
 		if (!start_interval(tail)) {
@@ -474,6 +595,7 @@ function create_documents_window(deps) {
 				docs: null,
 				truncated: false,
 				previousFirstKey: undefined,
+				previousDocs: null,
 				stop: () => {},
 			};
 			/** @type {DocumentsWindowInterval} */
@@ -483,6 +605,7 @@ function create_documents_window(deps) {
 				docs: null,
 				truncated: false,
 				previousFirstKey: undefined,
+				previousDocs: null,
 				stop: () => {},
 			};
 			if (!start_interval(left)) {
@@ -492,7 +615,12 @@ function create_documents_window(deps) {
 				left.stop();
 				break;
 			}
-			state.pending = { from: index, removeCount: 1, replacements: [left, right] };
+			state.pending = {
+				from: index,
+				removeCount: 1,
+				replacements: [left, right],
+				suppressedDocs: [snapshot_suppressed_docs(interval)],
+			};
 			return;
 		}
 
@@ -515,12 +643,18 @@ function create_documents_window(deps) {
 				docs: null,
 				truncated: false,
 				previousFirstKey: undefined,
+				previousDocs: null,
 				stop: () => {},
 			};
 			if (!start_interval(merged)) {
 				break;
 			}
-			state.pending = { from: index, removeCount: 2, replacements: [merged] };
+			state.pending = {
+				from: index,
+				removeCount: 2,
+				replacements: [merged],
+				suppressedDocs: [snapshot_suppressed_docs(first), snapshot_suppressed_docs(second)],
+			};
 			return;
 		}
 	};
@@ -548,18 +682,25 @@ function create_documents_window(deps) {
 			return;
 		}
 		if ("queryError" in outcome) {
-			console.error("[bonobo-plugin-sdk] Plugin data window interval failed:", outcome.queryError);
-			kill();
+			// This is where an ordinary lapsed session lands. The page read throws only when there is
+			// no identity at all, and that is what a cleared auth looks like after the JWT exchange
+			// stops answering. Everything else here is the connection.
+			const info = deps.session_expired() ? DEATH_SESSION_EXPIRED : DEATH_UNAVAILABLE;
+			if (info === DEATH_UNAVAILABLE) {
+				console.error("[bonobo-plugin-sdk] Plugin data window interval failed:", outcome.queryError);
+			}
+			kill(info);
 			return;
 		}
 		// null is the store's denial/revocation answer, and one dead interval kills the whole
 		// window: a flattened list with a silently missing range would lie to the page.
 		if (outcome.value === null) {
-			kill();
+			kill(DEATH_DENIED);
 			return;
 		}
 
 		interval.previousFirstKey = interval.docs?.[0]?.key;
+		interval.previousDocs = interval.docs;
 		interval.docs = outcome.value.docs;
 		interval.truncated = outcome.value.truncated;
 		if (state.awaitingTail === interval) {
@@ -587,6 +728,7 @@ function create_documents_window(deps) {
 		docs: null,
 		truncated: false,
 		previousFirstKey: undefined,
+		previousDocs: null,
 		stop: () => {},
 	};
 	if (!start_interval(head)) {
@@ -616,10 +758,13 @@ function create_documents_window(deps) {
 }
 
 /**
- * Builds the client's `data` and `members` APIs over an injectable reactive-read primitive.
- * `bonobo_ui_connect` wires it to the page's own Convex client; the SDK test suite injects a
- * fake `start_watch` instead, so the watch and window semantics run without a server. Plugin
- * code should use the client from `bonobo_ui_connect`, never call this directly.
+ * Builds the client's `data`, `members` and `scopes` APIs over an injectable reactive-read primitive.
+ * `bonobo_ui_connect` wires it to the page's own Convex client. Plugin code should use the client
+ * from `bonobo_ui_connect`, never call this directly — which is why this is NOT exported. The
+ * package publishes `frontend.js` next to a hand-written `frontend.d.ts`, and nothing compares
+ * the two (`typecheck` runs `tsc --skipLibCheck` over `frontend.js` alone), so an `export` here
+ * would ship a runtime symbol the type surface does not declare. The SDK test suite reaches this
+ * through `bonobo_ui_connect` and drives the seam from the fake Convex client instead.
  *
  * The `start_watch` dep starts one reactive read of the plugin's document store. `onResult`
  * receives `{ value }` (the query answer — `null` is the store's denial) or `{ queryError }`,
@@ -628,12 +773,18 @@ function create_documents_window(deps) {
  *
  * @param {{
  *   start_watch: DataStartWatch,
+ *   start_recent_watch: (queryArgs: Record<string, unknown>, onResult: (outcome: { value: { docs: import("bonobo-plugin-sdk").BonoboPublicDoc[], truncated: boolean } | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
  *   run_user_write: (op: "append" | "put" | "remove" | "putOwned" | "removeOwned", fields: Record<string, unknown>) => Promise<unknown>,
  *   resolve_member_display: (userIds: string[]) => Promise<{ members: Record<string, string | null> } | null>,
+ *   list_members: (limit: number, cursor: string | null) => Promise<{ members: import("bonobo-plugin-sdk/frontend").BonoboUiMember[], cursor: string | null } | { refusal: string } | null>,
+ *   run_manage_scope: (action: Record<string, unknown>) => Promise<unknown>,
+ *   list_scope_principals: (scopeId: string) => Promise<import("bonobo-plugin-sdk/frontend").BonoboUiScopePrincipal[] | null>,
+ *   start_my_scopes_watch: (onResult: (outcome: { value: import("bonobo-plugin-sdk/frontend").BonoboUiScope[] | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
+ *   session_expired: () => boolean,
  * }} deps
- * @returns {{ data: import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["data"], members: import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["members"] }}
+ * @returns {{ data: import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["data"], members: import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["members"], scopes: import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["scopes"] }}
  */
-export function bonobo_ui_create_data_api(deps) {
+function bonobo_ui_create_data_api(deps) {
 	// Live page-visible subscriptions: a plain watch and a document window each hold one entry.
 	/** @type {Set<object>} */
 	const registrations = new Set();
@@ -649,7 +800,12 @@ export function bonobo_ui_create_data_api(deps) {
 	const release_server_slot = () => {
 		serverSubscriptionCount -= 1;
 	};
-	const page_at_ceiling = () => serverSubscriptionCount >= MAX_PAGE_SERVER_SUBSCRIPTIONS;
+	// `requiredSlots` defaults to 1, which is the same test as `count >= MAX`. A caller that is about
+	// to start more than one watcher passes how many it needs, so it can tell "no room at all" apart
+	// from "no room for the pair I am about to start".
+	/** @param {number} [requiredSlots] */
+	const page_at_ceiling = (requiredSlots = 1) =>
+		serverSubscriptionCount + requiredSlots > MAX_PAGE_SERVER_SUBSCRIPTIONS;
 
 	// A death decided right in the watch call still must arrive like a real one: after the
 	// caller has its unsubscribe handle, on the same async timing a cached server answer has.
@@ -670,7 +826,84 @@ export function bonobo_ui_create_data_api(deps) {
 	/** @param {(docs: null, info?: { reason: string, message: string }) => void} onUpdate */
 	const refuse_capacity = (onUpdate) => {
 		console.warn("[bonobo-plugin-sdk] Data watch refused, subscription cap reached");
-		deliver_death_async(onUpdate, { reason: "capacity", message: "Subscription limit reached for this page" });
+		deliver_death_async(onUpdate, { reason: "capacity", message: "Subscription limit reached for this plugin frame" });
+	};
+
+	/**
+	 * Hold one page-visible subscription and turn every way it can end into the page's death
+	 * callback.
+	 *
+	 * Two doors need this and they must not drift: a missed `release_server_slot` leaks a slot the
+	 * page never gets back, and the frame then refuses later watches for no visible reason. `start`
+	 * owns what is being read; everything here is the bookkeeping around it.
+	 *
+	 * @template TValue, TPayload
+	 * @param {{
+	 *   start: (onOutcome: (outcome: { value: TValue | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
+	 *   onUpdate: (payload: TPayload | null, info?: { reason: string, message: string }) => void,
+	 *   deliver: (value: TValue) => TPayload,
+	 *   failureLabel: string,
+	 * }} args
+	 * @returns {() => void}
+	 */
+	const start_registered_watch = (args) => {
+		if (registrations.size >= MAX_WATCH_SUBSCRIPTIONS || page_at_ceiling()) {
+			refuse_capacity(args.onUpdate);
+			return () => {};
+		}
+		// The ceiling was checked synchronously above, so this slot take cannot fail; a false
+		// here would still be a capacity refusal.
+		if (!acquire_server_slot()) {
+			refuse_capacity(args.onUpdate);
+			return () => {};
+		}
+
+		const entry = {};
+		registrations.add(entry);
+		/** @type {{ dispose: () => void } | null} */
+		let subscription = null;
+		// Death and unsubscribe share this: the registration entry decides liveness, so a
+		// late delivery or a second unsubscribe after either path is a no-op.
+		const stop = () => {
+			if (!registrations.delete(entry)) {
+				return;
+			}
+			subscription?.dispose();
+			release_server_slot();
+		};
+		subscription = args.start((outcome) => {
+			if (!registrations.has(entry)) {
+				return;
+			}
+			if ("queryError" in outcome) {
+				// Same split as the window: a session that ran out is the ordinary end of a
+				// frame, and only a real transport failure deserves an error line.
+				const info = deps.session_expired() ? DEATH_SESSION_EXPIRED : DEATH_UNAVAILABLE;
+				if (info === DEATH_UNAVAILABLE) {
+					console.error(`[bonobo-plugin-sdk] Plugin ${args.failureLabel} failed:`, outcome.queryError);
+				}
+				stop();
+				args.onUpdate(null, info);
+				return;
+			}
+			// null is the store's denial/revocation answer: the subscription is dead and
+			// its resources are released before the page hears the death.
+			if (outcome.value === null) {
+				stop();
+				args.onUpdate(null, DEATH_DENIED);
+				return;
+			}
+			args.onUpdate(args.deliver(outcome.value));
+		});
+		if (!subscription) {
+			stop();
+			console.error(`[bonobo-plugin-sdk] Plugin ${args.failureLabel} could not start`);
+			deliver_death_async(args.onUpdate);
+			return () => {};
+		}
+		return function unsubscribe() {
+			stop();
+		};
 	};
 
 	/** @type {import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["data"]} */
@@ -688,66 +921,51 @@ export function bonobo_ui_create_data_api(deps) {
 				deliver_death_async(onUpdate, { reason: "invalid", message: invalid });
 				return () => {};
 			}
-			if (registrations.size >= MAX_WATCH_SUBSCRIPTIONS || page_at_ceiling()) {
-				refuse_capacity(onUpdate);
+			return start_registered_watch({
+				start: (onOutcome) =>
+					deps.start_watch(
+						{
+							collection: opts.collection,
+							...(opts.keyPrefix === undefined ? {} : { keyPrefix: opts.keyPrefix }),
+							limit: opts.limit,
+						},
+						null,
+						onOutcome,
+					),
+				onUpdate,
+				// The store already computes `truncated`, and dropping it here is what made the
+				// 101st document vanish with no sign. Deliver a payload object, the same shape
+				// `watchWindow` delivers, so parameter 2 stays reserved for death info.
+				deliver: (value) => ({ docs: value.docs, truncated: value.truncated }),
+				failureLabel: "data watch",
+			});
+		},
+		watchRecent(opts, onUpdate) {
+			// Creation-time order, which key order cannot answer for keys that carry no timestamp.
+			// The direction/fencepost pairing (`since` with ascending, `before` with descending) is
+			// judged by the server, where a violation dies as a bare null like any other bad input.
+			const invalid = validate_watch_inputs({ collection: opts.collection, limit: opts.limit });
+			if (invalid) {
+				deliver_death_async(onUpdate, { reason: "invalid", message: invalid });
 				return () => {};
 			}
-			// The ceiling was checked synchronously above, so this slot take cannot fail; a false
-			// here would still be a capacity refusal.
-			if (!acquire_server_slot()) {
-				refuse_capacity(onUpdate);
-				return () => {};
-			}
-
-			const entry = {};
-			registrations.add(entry);
-			/** @type {{ dispose: () => void } | null} */
-			let subscription = null;
-			// Death and unsubscribe share this: the registration entry decides liveness, so a
-			// late delivery or a second unsubscribe after either path is a no-op.
-			const stop = () => {
-				if (!registrations.delete(entry)) {
-					return;
-				}
-				subscription?.dispose();
-				release_server_slot();
-			};
-			subscription = deps.start_watch(
-				{
-					collection: opts.collection,
-					...(opts.keyPrefix === undefined ? {} : { keyPrefix: opts.keyPrefix }),
-					limit: opts.limit,
-				},
-				null,
-				(outcome) => {
-					if (!registrations.has(entry)) {
-						return;
-					}
-					if ("queryError" in outcome) {
-						console.error("[bonobo-plugin-sdk] Plugin data watch failed:", outcome.queryError);
-						stop();
-						onUpdate(null);
-						return;
-					}
-					// null is the store's denial/revocation answer: the subscription is dead and
-					// its resources are released before the page hears the death.
-					if (outcome.value === null) {
-						stop();
-						onUpdate(null);
-						return;
-					}
-					onUpdate(outcome.value.docs);
-				},
-			);
-			if (!subscription) {
-				stop();
-				console.error("[bonobo-plugin-sdk] Plugin data watch could not start");
-				deliver_death_async(onUpdate);
-				return () => {};
-			}
-			return function unsubscribe() {
-				stop();
-			};
+			return start_registered_watch({
+				start: (onOutcome) =>
+					deps.start_recent_watch(
+						{
+							collection: opts.collection,
+							limit: opts.limit,
+							...(opts.order === undefined ? {} : { order: opts.order }),
+							...(opts.since === undefined ? {} : { since: opts.since }),
+							...(opts.before === undefined ? {} : { before: opts.before }),
+							...(opts.scopeId === undefined ? {} : { scopeId: opts.scopeId }),
+						},
+						onOutcome,
+					),
+				onUpdate,
+				deliver: (value) => ({ docs: value.docs, truncated: value.truncated }),
+				failureLabel: "recent watch",
+			});
 		},
 		watchWindow(opts, onUpdate) {
 			const inertHandle = { loadOlder() {}, unsubscribe() {} };
@@ -781,10 +999,11 @@ export function bonobo_ui_create_data_api(deps) {
 				release_server_slot,
 				page_at_ceiling,
 				post_update: (payload) => onUpdate(payload),
-				on_dead: () => {
+				on_dead: (info) => {
 					registrations.delete(entry);
-					onUpdate(null);
+					onUpdate(null, info);
 				},
+				session_expired: deps.session_expired,
 			});
 			if (!documentsWindow) {
 				registrations.delete(entry);
@@ -888,9 +1107,105 @@ export function bonobo_ui_create_data_api(deps) {
 					return {};
 				});
 		},
+		list(opts) {
+			// Checked here so a bad limit costs no round trip, the same way `data.watch` refuses one.
+			if (!Number.isInteger(opts.limit) || opts.limit < 1 || opts.limit > MEMBERS_MAX_LIST_PAGE_SIZE) {
+				return Promise.resolve({
+					_nay: { name: "invalid", message: `Member list limits must be integers from 1 to ${MEMBERS_MAX_LIST_PAGE_SIZE}` },
+				});
+			}
+
+			return Promise.resolve()
+				.then(() => deps.list_members(opts.limit, opts.cursor ?? null))
+				.then((result) => {
+					// None of the three refusals below may answer an empty roster. A page that reads
+					// `members: []` tells the member this workspace has nobody in it, and the one refusal
+					// an admin can actually fix would never be seen.
+					if (result === null) {
+						return { _nay: { name: DEATH_DENIED.reason, message: "This plugin no longer has access to this workspace" } };
+					}
+					if ("refusal" in result) {
+						return {
+							_nay: {
+								name: "not_consented",
+								message: "This workspace has not granted this plugin the member list",
+							},
+						};
+					}
+					return { _yay: { members: result.members, cursor: result.cursor } };
+				})
+				.catch((error) => {
+					// Same split as a watch death: a session that ran out is the ordinary end of a frame,
+					// and only a real transport failure deserves an error line.
+					const info = deps.session_expired() ? DEATH_SESSION_EXPIRED : DEATH_UNAVAILABLE;
+					if (info === DEATH_UNAVAILABLE) {
+						console.error("[bonobo-plugin-sdk] Failed to list plugin workspace members:", error);
+					}
+					return { _nay: { name: info.reason, message: info.message } };
+				});
+		},
 	};
 
-	return { data, members };
+	/**
+	 * Runs one scope change. Same resolve-never-reject contract as a data write, and the same
+	 * stable fallback message, because the page shows both in the same dialogs.
+	 *
+	 * @param {Record<string, unknown>} action
+	 * @returns {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiScopeResult>}
+	 */
+	function run_scope(action) {
+		return Promise.resolve()
+			.then(() => deps.run_manage_scope(action))
+			.then((result) => /** @type {import("bonobo-plugin-sdk/frontend").BonoboUiScopeResult} */ (result))
+			.catch((error) => {
+				console.error("[bonobo-plugin-sdk] Plugin scope change failed:", error);
+				return { _nay: { message: "Failed to change who can read this" } };
+			});
+	}
+
+	/** @type {import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["scopes"]} */
+	const scopes = {
+		create(opts) {
+			return run_scope({
+				kind: "create",
+				scopeId: opts.scopeId,
+				collections: opts.collections,
+				keyPrefix: opts.keyPrefix,
+			});
+		},
+		setPrincipal(opts) {
+			return run_scope({ kind: "set_principal", scopeId: opts.scopeId, userId: opts.userId, level: opts.level });
+		},
+		removePrincipal(opts) {
+			return run_scope({ kind: "remove_principal", scopeId: opts.scopeId, userId: opts.userId });
+		},
+		delete(opts) {
+			return run_scope({ kind: "delete", scopeId: opts.scopeId });
+		},
+		listPrincipals(opts) {
+			return Promise.resolve()
+				.then(() => deps.list_scope_principals(opts.scopeId))
+				.catch((error) => {
+					// Null already means "this scope is not yours to see", so a failed read answers the
+					// same thing rather than inventing an empty share list.
+					console.error("[bonobo-plugin-sdk] Failed to read plugin scope principals:", error);
+					return null;
+				});
+		},
+		watchMine(onUpdate) {
+			// This is live, not a one-shot read, and that is the point: when somebody adds this member
+			// to a private range, the page has to show it without a reload. It holds one subscription
+			// slot like any other watch.
+			return start_registered_watch({
+				start: (onOutcome) => deps.start_my_scopes_watch(onOutcome),
+				onUpdate,
+				deliver: (value) => value,
+				failureLabel: "scope watch",
+			});
+		},
+	};
+
+	return { data, members, scopes };
 }
 
 /**
@@ -929,6 +1244,23 @@ function create_convex_data_deps(convexClient) {
 	return {
 		start_watch,
 		/**
+		 * @param {Record<string, unknown>} queryArgs
+		 * @param {(outcome: { value: any } | { queryError: unknown }) => void} onResult
+		 */
+		start_recent_watch: (queryArgs, onResult) => {
+			try {
+				const unsubscribe = convexClient.onUpdate(
+					anyApi.plugins_data.watch_recent,
+					queryArgs,
+					(value) => onResult({ value }),
+					(queryError) => onResult({ queryError }),
+				);
+				return { dispose: () => void unsubscribe() };
+			} catch {
+				return null;
+			}
+		},
+		/**
 		 * @param {"append" | "put" | "remove" | "putOwned" | "removeOwned"} op
 		 * @param {Record<string, unknown>} fields
 		 */
@@ -948,6 +1280,29 @@ function create_convex_data_deps(convexClient) {
 		},
 		/** @param {string[]} userIds */
 		resolve_member_display: (userIds) => convexClient.query(anyApi.plugins_data.resolve_member_display, { userIds }),
+		/**
+		 * @param {number} limit
+		 * @param {string | null} cursor
+		 */
+		list_members: (limit, cursor) => convexClient.query(anyApi.plugins_data.list_members, { limit, cursor }),
+		/** @param {Record<string, unknown>} action */
+		run_manage_scope: (action) => convexClient.mutation(anyApi.plugins_data.user_manage_scope, { action }),
+		/** @param {string} scopeId */
+		list_scope_principals: (scopeId) => convexClient.query(anyApi.plugins_data.watch_scope_principals, { scopeId }),
+		/** @param {(outcome: { value: any } | { queryError: unknown }) => void} onResult */
+		start_my_scopes_watch: (onResult) => {
+			try {
+				const unsubscribe = convexClient.onUpdate(
+					anyApi.plugins_data.watch_my_scopes,
+					{},
+					(value) => onResult({ value }),
+					(queryError) => onResult({ queryError }),
+				);
+				return { dispose: () => void unsubscribe() };
+			} catch {
+				return null;
+			}
+		},
 	};
 }
 
@@ -976,6 +1331,14 @@ export async function bonobo_ui_connect() {
 	let apiOrigin = "";
 	let token = "";
 	let tokenExpiresAt = 0;
+
+	// Theme state — set by `bonobo:init`, replaced by `bonobo:theme` when the member switches the
+	// host's theme. It stays null when the host sends none, so an older host keeps working and the
+	// page can fall back to its own colours.
+	/** @type {import("bonobo-plugin-sdk/frontend").BonoboUiTheme | null} */
+	let theme = null;
+	/** @type {Set<(theme: import("bonobo-plugin-sdk/frontend").BonoboUiTheme) => void>} */
+	const themeSubscribers = new Set();
 
 	/** @type {Map<string, { resolve: (token: string) => void, reject: (error: Error) => void, timeout: ReturnType<typeof setTimeout> }>} */
 	const pending_refreshes = new Map();
@@ -1010,7 +1373,7 @@ export async function bonobo_ui_connect() {
 		refresh_in_flight = new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				pending_refreshes.delete(requestId);
-				reject(new Error("Plugin page token refresh timed out"));
+				reject(new Error("Plugin frame token refresh timed out"));
 			}, REFRESH_DEADLINE_MS);
 			pending_refreshes.set(requestId, { resolve, reject, timeout });
 			try {
@@ -1038,7 +1401,7 @@ export async function bonobo_ui_connect() {
 	 *
 	 * @param {string} path - Public API path starting with `/`, e.g. `"/api/v1/files/list"`.
 	 * @param {{ method?: string, headers?: Record<string, string>, body?: unknown }} [init]
-	 * @returns {Promise<any>}
+	 * @returns {Promise<unknown>}
 	 */
 	async function fetchJson(path, init) {
 		const has_body = init?.body !== undefined;
@@ -1187,8 +1550,33 @@ export async function bonobo_ui_connect() {
 				// drops this page's subscriptions; a page restored from bfcache stays frozen and
 				// needs a reload.
 				window.addEventListener("pagehide", () => void convexClient.close(), { once: true });
-				const { data, members } = bonobo_ui_create_data_api(create_convex_data_deps(convexClient));
-				resolve({ context: message.context, apiOrigin, getToken, refreshToken, fetchJson, data, members });
+				theme = read_theme(message.theme);
+				const { data, members, scopes } = bonobo_ui_create_data_api({
+					...create_convex_data_deps(convexClient),
+					// The one thing that tells a lapsed session apart from a broken connection. The
+					// server answers the same opaque null for both, so this clock is the whole
+					// difference, and it lives in this closure.
+					session_expired: () => Date.now() >= tokenExpiresAt,
+				});
+				resolve({
+					context: message.context,
+					apiOrigin,
+					getToken,
+					refreshToken,
+					fetchJson,
+					data,
+					members,
+					scopes,
+					theme: {
+						current: () => theme,
+						subscribe(onChange) {
+							themeSubscribers.add(onChange);
+							return () => {
+								themeSubscribers.delete(onChange);
+							};
+						},
+					},
+				});
 			} else if (
 				initialized &&
 				message.bridgeNonce === bridgeNonce &&
@@ -1205,6 +1593,14 @@ export async function bonobo_ui_connect() {
 					token = message.token;
 					tokenExpiresAt = message.tokenExpiresAt;
 					pending.resolve(message.token);
+				}
+			} else if (initialized && message.bridgeNonce === bridgeNonce && message.type === "bonobo:theme") {
+				const next = read_theme(message.theme);
+				if (next) {
+					theme = next;
+					for (const onChange of themeSubscribers) {
+						onChange(next);
+					}
 				}
 			} else if (
 				initialized &&

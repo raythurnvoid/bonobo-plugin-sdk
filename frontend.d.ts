@@ -1,7 +1,7 @@
 import type { BonoboPublicDoc } from "bonobo-plugin-sdk";
 
 /**
- * Sent by the page to `window.parent` at the exact `parentOrigin` from the URL fragment once the
+ * Sent by the frame to `window.parent` at the exact `parentOrigin` from the URL fragment once the
  * connect listener is installed. It tells the host this frame is ready to receive
  * {@link BonoboUiInitMessage} and proves it read the frame's bootstrap nonce.
  */
@@ -11,7 +11,7 @@ export interface BonoboUiReadyMessage {
 }
 
 /**
- * Sent by the page to `window.parent` to ask for a fresh session token. The host answers with a
+ * Sent by the frame to `window.parent` to ask for a fresh session token. The host answers with a
  * {@link BonoboUiTokenMessage} or {@link BonoboUiTokenErrorMessage} echoing `requestId`.
  */
 export interface BonoboUiTokenRefreshRequestMessage {
@@ -58,8 +58,39 @@ export interface BonoboUiFileViewContext {
 export type BonoboUiContext = BonoboUiPageContext | BonoboUiFileViewContext;
 
 /**
+ * One colour role in the host's theme. The host resolves its own palette and sends the finished
+ * values, so a plugin gets colours that match the app without knowing anything about the host's
+ * custom properties.
+ */
+export type BonoboUiThemeToken =
+	| "surface"
+	| "surfaceRaised"
+	| "surfaceOverlay"
+	| "surfaceHover"
+	| "border"
+	| "borderStrong"
+	| "text"
+	| "textMuted"
+	| "textSubtle"
+	| "accent"
+	| "accentHover"
+	| "selection"
+	| "success"
+	| "danger";
+
+/**
+ * The host's theme, as the plugin frame sees it. `mode` says which of the two the member is in, so
+ * a page can pick its own shadows and image treatments. `tokens` holds one CSS colour value per
+ * role, ready to write into a custom property or a style.
+ */
+export interface BonoboUiTheme {
+	mode: "light" | "dark";
+	tokens: Record<BonoboUiThemeToken, string>;
+}
+
+/**
  * The host's answer to {@link BonoboUiReadyMessage}: it delivers the short-lived scoped session
- * token (`plu_...`), the Convex deployment URL the page's own client connects to, and the
+ * token (`plu_...`), the Convex deployment URL the frame's own client connects to, and the
  * embedding context. The init is trusted only from `window.parent`, the exact `parentOrigin`
  * from the URL fragment, and the matching frame nonce. The token travels over postMessage only
  * and is never placed in a URL. `tokenExpiresAt` is Unix epoch milliseconds.
@@ -77,6 +108,11 @@ export interface BonoboUiInitMessage {
 	token: string;
 	tokenExpiresAt: number;
 	context: BonoboUiContext;
+	/**
+	 * The host theme at startup. It is optional because an older host sends none, and then
+	 * `client.theme.current()` stays `null` and the page falls back to its own colours.
+	 */
+	theme?: BonoboUiTheme;
 }
 
 /**
@@ -92,6 +128,16 @@ export interface BonoboUiTokenMessage {
 	tokenExpiresAt: number;
 }
 
+/**
+ * The host's unprompted message when the member switches the app's theme. The plugin frame is a
+ * separate document, so it never sees the host's own theme class change.
+ */
+export interface BonoboUiThemeMessage {
+	type: "bonobo:theme";
+	bridgeNonce: string;
+	theme: BonoboUiTheme;
+}
+
 /** The host's failure answer to {@link BonoboUiTokenRefreshRequestMessage}. */
 export interface BonoboUiTokenErrorMessage {
 	type: "bonobo:token-error";
@@ -101,10 +147,16 @@ export interface BonoboUiTokenErrorMessage {
 }
 
 /**
- * Why a subscription died, when the SDK could say. `reason` is `"invalid"` when the watch inputs
- * failed the client-side checks, and `"capacity"` when the page holds too many live
- * subscriptions (close one first). A death without a reason means access is gone or the query
- * failed on the server.
+ * Why a subscription died. A page shows a different thing for each, so the SDK names all five:
+ *
+ * - `"invalid"` — the watch inputs failed the client-side checks. This is a bug in the call.
+ * - `"capacity"` — the frame already holds too many live subscriptions. Close one first.
+ * - `"denied"` — the store refused the read. The plugin was uninstalled, or its data was removed.
+ * - `"session_expired"` — the frame's session ran out. Reloading the page gets a new one.
+ * - `"unavailable"` — the data connection failed. Nothing the member does fixes this one.
+ *
+ * `info` is absent only when the SDK could not start the subscription at all, and then the failure
+ * is already visible at the call site.
  */
 export interface BonoboUiWatchDeathInfo {
 	reason?: string;
@@ -112,11 +164,28 @@ export interface BonoboUiWatchDeathInfo {
 }
 
 /**
+ * One non-null `data.watch` or `data.watchRecent` update. `docs` replaces the whole list —
+ * ordered by key for `watch`, by creation time for `watchRecent`. `truncated`
+ * says the read hit its own `limit` and the documents past that limit are not in `docs`. A plain
+ * watch cannot reach them at all — it re-reads one capped page and keeps no history — so a page
+ * that must show everything has to use `watchWindow` instead. Without this flag a page cannot tell
+ * "this is the whole collection" from "this is the first `limit` of it", and the documents past
+ * the cap disappear with no sign.
+ */
+export interface BonoboUiDataWatchUpdate {
+	docs: BonoboPublicDoc[];
+	truncated: boolean;
+}
+
+/**
  * One non-null `data.watchWindow` update. `docs` replaces the whole flattened window, ordered by
  * key. `hasMore` says older docs exist below the window (`loadOlder` fetches them). `atCapacity`
- * says the window cannot grow right now — its interval budget or the page's subscription budget
- * is spent. `incomplete` says docs are missing in the middle of the window because an overflowing
- * range could not be re-read; treat the list as gapped, not merely short.
+ * says the window cannot grow right now — either its own 6-interval budget or the frame's budget
+ * of 24 server subscriptions is spent. `incomplete` says docs are missing in the middle of the
+ * window because an overflowing range could not be re-read; treat the list as gapped, not merely
+ * short. Re-reading a range splits it in two, so it needs a free interval AND two free frame
+ * subscriptions. `incomplete` stays false while a repair is running, and stays true once the range
+ * is stuck — the window does not get those docs back on its own.
  */
 export interface BonoboUiDataWindowUpdate {
 	docs: BonoboPublicDoc[];
@@ -137,6 +206,33 @@ export type BonoboUiDataPutOwnedResult =
 	| { _yay: { key: string; revision: number; byteSize: number } }
 	| BonoboUiDataWriteNay;
 export type BonoboUiDataRemoveResult = { _yay: { deleted: boolean } } | BonoboUiDataWriteNay;
+
+/**
+ * One row of the workspace roster. `displayName` is `null` for a member who has no profile name
+ * yet, which includes a member who signed in anonymously. Email is never part of a row.
+ */
+export interface BonoboUiMember {
+	userId: string;
+	displayName: string | null;
+}
+
+/**
+ * One `members.list` answer.
+ *
+ * A refusal resolves `_nay` and never an empty roster, because `{ members: [] }` would tell the
+ * member this workspace has nobody in it. `_nay.name` uses the same words as a watch death
+ * ({@link BonoboUiWatchDeathInfo}), plus one this call has of its own:
+ *
+ * - `"not_consented"` — this workspace never accepted `workspace.members.read`. An admin accepting
+ *   the plugin's current permissions fixes it, so say that instead of showing an empty list.
+ * - `"invalid"` — `limit` failed the client-side check. This is a bug in the call.
+ * - `"denied"` — the frame's access is gone: the plugin was uninstalled or the member left.
+ * - `"session_expired"` — the frame's session ran out. Reloading the page gets a new one.
+ * - `"unavailable"` — the data connection failed. Nothing the member does fixes this one.
+ */
+export type BonoboUiMemberListResult =
+	| { _yay: { members: BonoboUiMember[]; cursor: string | null } }
+	| { _nay: { name: string; message: string } };
 
 /** The result of one data write — the union of the per-operation shapes above. */
 export type BonoboUiDataWriteResult =
@@ -175,6 +271,11 @@ export interface BonoboUiFrontendClient {
 	 * refreshes the token and retries exactly once. Ok responses resolve with the parsed JSON
 	 * body; non-ok responses throw an `Error` carrying `status` and `responseText`.
 	 *
+	 * The result is `unknown` on purpose. It is whatever the API answered, so the page has to
+	 * check the shape before reading it. The pagination note below is the reason: a listing page
+	 * may come back short or even empty, and a type that let you read `.items` straight away
+	 * would hide that.
+	 *
 	 * Pagination: with `contentTypePrefixes`, one `/api/v1/files/list` request uses one bounded
 	 * query. `scanLimit` sets its source-doc budget; the server defaults and caps it at 10,000 docs.
 	 * The query does not set a byte-read cap. A page may come back short or even empty while
@@ -183,9 +284,12 @@ export interface BonoboUiFrontendClient {
 	 * of requests per user action (say 30), keep `cursor` across actions, buffer items fetched
 	 * beyond what is shown, and retry a `429` on the same cursor — the page is not lost.
 	 */
-	fetchJson(path: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown }): Promise<any>;
+	fetchJson(
+		path: string,
+		init?: { method?: string; headers?: Record<string, string>; body?: unknown },
+	): Promise<unknown>;
 	/**
-	 * The plugin's own document store, on the page's own Convex client. Reads are reactive
+	 * The plugin's own document store, on the frame's own Convex client. Reads are reactive
 	 * Convex subscriptions; writes run as the viewing member, attributed to the session's user.
 	 * Every write RESOLVES with a {@link BonoboUiDataWriteResult} — `_nay` resolves too, and a
 	 * failed call (network loss, an unserializable payload) resolves the stable
@@ -194,20 +298,55 @@ export interface BonoboUiFrontendClient {
 	data: {
 		/**
 		 * Opens one reactive subscription on `collection` (optionally narrowed to keys starting
-		 * with `keyPrefix`). `onUpdate` receives the subscription's whole current window each time
-		 * — replace, do not accumulate — and `null` exactly once when the subscription dies. The
+		 * with `keyPrefix`). `onUpdate` receives a {@link BonoboUiDataWatchUpdate} holding the
+		 * subscription's whole current window each time — replace, do not accumulate — and `null`
+		 * exactly once when the subscription dies. Read `truncated` on every update: the read is
+		 * capped at `limit`, and everything past the cap is simply not there. The
 		 * death may carry a {@link BonoboUiWatchDeathInfo} explaining why; a bare `null` means
 		 * access is gone. After a `null` the registration is gone. Returns an unsubscribe
 		 * function; calling it after a `null` update, or a second time, is a no-op.
 		 *
 		 * `limit` must be an integer from 1 to 100 — an out-of-range limit kills the
 		 * subscription at birth with `reason: "invalid"`, nothing is clamped. The SDK allows at
-		 * most 8 active subscriptions per page (plain watches and windows share those slots);
+		 * most 16 active subscriptions per frame (plain watches and windows share those slots);
 		 * one more dies at birth with `reason: "capacity"`.
+		 *
+		 * A second ceiling can refuse this watch long before those 16 slots are full. The frame
+		 * holds at most 24 server subscriptions: one per plain watch, one per window interval. A
+		 * grown window spends several, so four fully-grown windows spend all 24 while taking only
+		 * 4 of the 16 slots. A watch opened after that dies with `reason: "capacity"` too. Close a
+		 * window or a watch to get subscriptions back.
 		 */
 		watch(
 			opts: { collection: string; keyPrefix?: string; limit: number },
-			onUpdate: (docs: BonoboPublicDoc[] | null, info?: BonoboUiWatchDeathInfo) => void,
+			onUpdate: (update: BonoboUiDataWatchUpdate | null, info?: BonoboUiWatchDeathInfo) => void,
+		): () => void;
+		/**
+		 * Opens one reactive subscription on the NEWEST documents of `collection`, ordered by
+		 * creation time — which key order cannot answer for keys that carry no timestamp. Pass
+		 * `scopeId` to read one private scope instead of the public half; there is no key range
+		 * here to resolve a scope from. Edits and deletions never move a document in this order:
+		 * a tombstoned doc keeps its creation-time slot, so read its value's own deletion marker.
+		 * The delivery contract is `watch`'s: each update replaces the whole list, `null` ends the
+		 * subscription, `limit` follows the same 1..100 rule, and the read spends the same frame
+		 * slot and server subscription.
+		 *
+		 * `order` defaults to `"asc"`. Each fencepost belongs to one direction: `since` (exclusive
+		 * lower bound, ms — the catch-up read) only with ascending, and `before` (exclusive upper
+		 * bound, ms — the feed read) only with descending. Copy either fencepost from a delivered
+		 * doc's `createdAt`. The server judges the pairing, and a violation kills the subscription
+		 * with a bare `null`, like any other refused read.
+		 */
+		watchRecent(
+			opts: {
+				collection: string;
+				limit: number;
+				order?: "asc" | "desc";
+				since?: number;
+				before?: number;
+				scopeId?: string;
+			},
+			onUpdate: (update: BonoboUiDataWatchUpdate | null, info?: BonoboUiWatchDeathInfo) => void,
 		): () => void;
 		/**
 		 * Opens one reactive document WINDOW on `collection` (optionally narrowed to `keyPrefix`).
@@ -217,6 +356,18 @@ export interface BonoboUiFrontendClient {
 		 * ({@link BonoboUiDataWindowUpdate}), and `null` exactly once when the window dies — same
 		 * death contract as `watch`. A window can hold up to 6 internal reads (600 docs at
 		 * `pageSize` 100); past that it reports `atCapacity` instead of growing.
+		 *
+		 * The frame's 24 server subscriptions are the other ceiling. Every internal read of every
+		 * window spends one, so four fully-grown windows spend the whole frame budget. A window
+		 * reports `atCapacity` and refuses `loadOlder()` as soon as that budget is gone, which
+		 * can happen long before its own 6 reads are used. The same ceiling kills a new window at
+		 * birth with `reason: "capacity"`.
+		 *
+		 * That budget has a third effect, and it is the one that loses docs. When new docs overflow
+		 * a range the window already holds, the window re-reads that range as two smaller ones, so
+		 * the repair needs a free interval and TWO free frame subscriptions. When it cannot start,
+		 * the docs pushed out of that range are gone from the window for good and `incomplete`
+		 * turns true. Close another window or watch to leave room for repairs.
 		 */
 		watchWindow(
 			opts: { collection: string; keyPrefix?: string; pageSize: number },
@@ -225,7 +376,8 @@ export interface BonoboUiFrontendClient {
 		/**
 		 * Creates a document under a server-generated key starting with `keyPrefix`. Pass the same
 		 * `clientRequestId` when retrying so a replayed append answers the stored key instead of
-		 * writing twice.
+		 * writing twice. The new document is member-owned (`ownership: "owned"`): only the appending
+		 * member may later change or delete it through interactive writers.
 		 */
 		append(opts: {
 			collection: string;
@@ -275,18 +427,147 @@ export interface BonoboUiFrontendClient {
 			expectedRevision?: number;
 		}): Promise<BonoboUiDataRemoveResult>;
 	};
-	/** Member-name resolution on the page's own Convex client. */
+	/**
+	 * The host's theme. Read `current()` once at startup and `subscribe()` for later switches; a
+	 * plugin page never sees the host's theme change on its own.
+	 */
+	theme: {
+		/** The theme the host last sent, or `null` when the host sent none. */
+		current(): BonoboUiTheme | null;
+		/**
+		 * Calls `onChange` on every later theme the host sends, and never for the current one.
+		 * Returns the unsubscribe function.
+		 */
+		subscribe(onChange: (theme: BonoboUiTheme) => void): () => void;
+	};
+	/** Member names and the workspace roster, on the frame's own Convex client. */
 	members: {
 		/**
 		 * Resolves up to 50 user ids to display names. A missing or deleted user maps to `null`.
 		 * A denied or failed query resolves an empty map; the call never rejects.
 		 */
 		resolve(userIds: string[]): Promise<Record<string, string | null>>;
+		/**
+		 * Reads one page of the workspace roster. Needs the `workspace.members.read` capability,
+		 * which `resolve` above does not: resolving names for ids the plugin already holds
+		 * enumerates nobody, and this reads the list itself.
+		 *
+		 * The order is stable but carries no meaning — it follows the internal user id. Sort the
+		 * rows yourself before showing them.
+		 *
+		 * `limit` must be an integer from 1 to 100. Pass the previous answer's `cursor` to read the
+		 * next page; a `null` cursor means that was the last page. The call never rejects — every
+		 * refusal resolves `_nay` ({@link BonoboUiMemberListResult}), and no refusal ever looks like
+		 * an empty workspace.
+		 */
+		list(opts: { limit: number; cursor?: string | null }): Promise<BonoboUiMemberListResult>;
+	};
+	/**
+	 * Private key ranges inside the plugin's own store — a private channel, a direct message, or
+	 * anything else only some members may read.
+	 *
+	 * A scope covers one key prefix across the collections it names. Every document written under
+	 * that prefix carries the scope, and every read door hides it from a member the scope does not
+	 * name. That hiding is total and needs no help from the page: an unreadable scope's documents
+	 * never arrive, so a channel list built from a watch shows nothing at all for it. Do not render
+	 * a locked placeholder from some other source — a placeholder tells the member the channel
+	 * exists, which is the one thing the scope is for.
+	 *
+	 * Two things the page must say out loud. The organization owner passes every permission check
+	 * before any grant is read, so the owner reads every scope; copy that says "private" without
+	 * saying that is a disclosure. And a member may hold at most 50 scopes, so a page that creates
+	 * them has to let members delete one too.
+	 */
+	scopes: {
+		/**
+		 * Creates a scope, or answers yes again for one that already exists with the same range. The
+		 * caller receives the first `manage` grant on it.
+		 *
+		 * Name every collection the private area spans in one call. That costs one scope against the
+		 * member's cap, and it is the only way to create it over all of them at once: a scope built
+		 * one collection at a time leaves the rest readable in between.
+		 *
+		 * The key range must be free — no other scope may overlap it, and no document may already
+		 * sit in it. Write the documents after this call answers, never before.
+		 */
+		create(opts: { scopeId: string; collections: string[]; keyPrefix: string }): Promise<BonoboUiScopeResult>;
+		/**
+		 * Adds somebody to the scope, or changes the level they already hold. `member` reads and
+		 * writes inside it; `manage` also changes who else is in it. Needs `manage` on this scope —
+		 * a workspace role, however senior, gives nothing here.
+		 */
+		setPrincipal(opts: { scopeId: string; userId: string; level: "member" | "manage" }): Promise<BonoboUiScopeResult>;
+		/**
+		 * Takes somebody out of the scope. Needs `manage`. Removing yourself is refused: a scope with
+		 * nobody left in it could never be reached or deleted again, so delete it instead.
+		 */
+		removePrincipal(opts: { scopeId: string; userId: string }): Promise<BonoboUiScopeResult>;
+		/**
+		 * Deletes the scope and every grant on it. Needs `manage`.
+		 *
+		 * The documents stay where they are, and their key range cannot be claimed by a new scope
+		 * afterwards. Delete them first if the range should become reusable.
+		 */
+		delete(opts: { scopeId: string }): Promise<BonoboUiScopeResult>;
+		/**
+		 * Who is in the scope. Resolves `null` for a caller the scope does not name, which is also
+		 * the answer for a scope that does not exist — so a refusal reveals nothing.
+		 *
+		 * Use it to show and edit a share list. Without it a page can add people to a private
+		 * channel and can never show or change the list again.
+		 */
+		listPrincipals(opts: { scopeId: string }): Promise<BonoboUiScopePrincipal[] | null>;
+		/**
+		 * Watches which scopes this member is in. This is how a page finds its private documents
+		 * again: a read with no `keyPrefix` answers only the public part of a collection, and the
+		 * scope id is yours, so nothing else on the server can hand it back. Read this first, then
+		 * open one `watch` per scope with `keyPrefix` set to the scope's `keyPrefix`.
+		 *
+		 * It is live on purpose. When somebody adds this member to a scope the list updates by
+		 * itself, so a private channel appears without a reload — and disappears the same way when
+		 * they are taken out.
+		 *
+		 * The organization owner may read every scope but sees only the ones they were added to. A
+		 * private range nobody invited them to is not listed here.
+		 *
+		 * `onUpdate` receives the whole current list each time — replace, do not accumulate — and
+		 * `null` exactly once when the subscription dies, with the same death contract as
+		 * `data.watch`. It holds one of the frame's subscription slots. Returns an unsubscribe
+		 * function; calling it after a `null` update, or a second time, is a no-op.
+		 */
+		watchMine(
+			onUpdate: (scopes: BonoboUiScope[] | null, info?: BonoboUiWatchDeathInfo) => void,
+		): () => void;
 	};
 }
 
+/** One member of a scope. `manage` may change who else is in it; `member` may not. */
+export interface BonoboUiScopePrincipal {
+	userId: string;
+	level: "member" | "manage";
+}
+
+/** One scope this member is in, as {@link BonoboUiFrontendClient.scopes.watchMine} reports it. */
+export interface BonoboUiScope {
+	scopeId: string;
+	/** Every key under this prefix belongs to the scope, in each of its `collections`. */
+	keyPrefix: string;
+	collections: string[];
+	level: "member" | "manage";
+}
+
 /**
- * Connects the page to the embedding host app. It installs one shared `message` listener (for
+ * The result of one scope change. Like a data write it resolves rather than rejects, and a failed
+ * call resolves a stable `_nay` instead of throwing.
+ *
+ * `_nay.name` is `"conflict"` when the scope id already covers a different key range, when another
+ * scope overlaps the range, or when the range already holds documents. Other refusals carry a
+ * message only.
+ */
+export type BonoboUiScopeResult = { _yay: { scopeId: string } } | BonoboUiDataWriteNay;
+
+/**
+ * Connects the frame to the embedding host app. It installs one shared `message` listener (for
  * init and token responses), posts {@link BonoboUiReadyMessage} to `window.parent`, and resolves
  * with the client when the host's {@link BonoboUiInitMessage} arrives.
  * `bonobo:init` messages after the first are ignored.
@@ -297,8 +578,8 @@ export interface BonoboUiFrontendClient {
  * the document unloads. The host owns the startup deadline and replaces a failed frame; the SDK
  * does not run a competing timeout.
  *
- * On init the SDK opens the page's own Convex client against the init's `convexUrl` and closes
- * it on `pagehide` — a page restored from the browser's back/forward cache stays frozen and
+ * On init the SDK opens the frame's own Convex client against the init's `convexUrl` and closes
+ * it on `pagehide` — a frame restored from the browser's back/forward cache stays frozen and
  * needs a reload. The client authenticates with short-lived plugin-session JWTs minted by
  * exchanging the session token at the same-origin `/plugins-ui/session-jwt` route. The exchange
  * itself never extends the session; it stays alive because the SDK refreshes the session token

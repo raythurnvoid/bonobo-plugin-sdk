@@ -12,10 +12,10 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  * - `plugin.secrets.read` — the backend run may call `env.BONOBO.secrets.get(name)`.
  * - `outbound.fetch` — the backend run may `fetch` the manifest's `outboundOrigins`.
  * - `workspace.files.read` — the plugin's UI pages and file views may read workspace files. It
- *   puts the `files:list`, `files:read`, and `files:download` scopes on the page's UI token. It
+ *   puts the `files:list`, `files:read`, and `files:download` scopes on the frame's UI token. It
  *   never applies to backend runs.
  * - `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant,
- *   capped by an exact destination path prefix. It reaches neither the backend run nor the page.
+ *   capped by an exact destination path prefix. It reaches neither the backend run nor the frame.
  *   The interactive exchange never mints that scope; the Council service gets it through the
  *   seal-processing route, and only the `/api/v1/files/service-uploads/*` routes accept it.
  * - `workspace.files.create-read-only` — lets the service request a direct read-only lock when it
@@ -23,19 +23,25 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  * - `plugin.data.read` — backend runs, UI pages and file views, and eligible Council service grants
  *   may read the plugin's own document store.
  * - `plugin.data.write` — backend runs and eligible Council service grants may write the plugin's own
- *   document store. A page token never receives the write scope, whatever the installation
- *   accepted.
+ *   document store. A frame's UI token never receives the write scope, whatever the installation
+ *   accepted. Declaring it also requires `plugin.data.read`.
  * - `plugin.data.user-write` — the plugin's UI pages and file views may create, change, and delete
- *   documents in that store as the acting member. The write never rides the page's UI token: it
+ *   documents in that store as the acting member. The write never rides the frame's UI token: it
  *   runs through the app's own member-attributed mutations. Declaring it also requires
  *   `plugin.data.read`.
- * - `plugin.service.connect` — lets a Council page UI token participate in the service-grant
- *   exchange, but grants no API scope itself. The Council service must also authenticate with its
- *   configured service secret. Declaring it requires `plugin.data.read` or `workspace.files.write`
- *   as well, because a grant that carries no scope buys the service nothing.
- * - `ui.outbound.fetch` — the page, running in the member's browser, may call the manifest's
- *   `uiOutboundOrigins`. It is enforced as `connect-src` in the page's CSP. It and
- *   `uiOutboundOrigins` require each other: neither may be declared alone.
+ * - `plugin.service.connect` — lets a Council UI token from a page or a file view participate in
+ *   the service-grant exchange, but grants no API scope itself. The exchange reads only the
+ *   session's installation and member, so both frame kinds work the same. The Council service must
+ *   also authenticate with its configured service secret. Declaring it requires `plugin.data.read`
+ *   or `workspace.files.write` as well, because a grant that carries no scope buys the service
+ *   nothing.
+ * - `ui.outbound.fetch` — the plugin's UI pages and file views, running in the member's browser, may
+ *   call the manifest's `uiOutboundOrigins`. It is enforced as `connect-src` in the frame's CSP. It
+ *   and `uiOutboundOrigins` require each other: neither may be declared alone.
+ * - `workspace.members.read` — the plugin's UI pages and file views may list every member of the
+ *   workspace, as user ids and display names. Email is never returned. Without it a frame can still
+ *   resolve names for ids it already holds, which enumerates nobody. Every member reads the roster
+ *   under one rule, including a member who signed in anonymously.
  */
 export type BonoboCapability =
 	| "plugin.secrets.read"
@@ -47,7 +53,8 @@ export type BonoboCapability =
 	| "plugin.data.write"
 	| "plugin.data.user-write"
 	| "plugin.service.connect"
-	| "ui.outbound.fetch";
+	| "ui.outbound.fetch"
+	| "workspace.members.read";
 
 /**
  * Optional `navItem` of a manifest `pages[]` entry ({@link BonoboManifestPage}). Declaring it is
@@ -125,12 +132,13 @@ export type BonoboConfigurationValue =
 	| { [key: string]: BonoboConfigurationValue };
 
 /**
- * JSON body of the `request` the worker's `fetch(request, env, ctx)` receives for an
- * upload-triggered run.
+ * JSON body of the `request` the worker's `fetch(request, env, ctx)` receives for a file run.
+ * An upload-triggered run sets `event` to `"files.upload.completed"`. A manual or backfill
+ * re-run delivers the same `source` with `"files.run.requested"`.
  */
 export interface BonoboUploadCompletedEvent {
 	pluginRunId: string;
-	event: "files.upload.completed";
+	event: "files.upload.completed" | "files.run.requested";
 	eventId: string;
 	organizationId: string;
 	workspaceId: string;
