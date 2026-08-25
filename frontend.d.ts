@@ -164,8 +164,9 @@ export interface BonoboUiWatchDeathInfo {
 }
 
 /**
- * One non-null `data.watch` or `data.watchRecent` update. `docs` replaces the whole list —
- * ordered by key for `watch`, by creation time for `watchRecent`. `truncated`
+ * One non-null `data.watch`, `data.watchRecent`, or `data.watchChanges` update. `docs` replaces
+ * the whole list — ordered by key for `watch`, by creation time for `watchRecent`, by update
+ * time for `watchChanges`. `truncated`
  * says the read hit its own `limit` and the documents past that limit are not in `docs`. A plain
  * watch cannot reach them at all — it re-reads one capped page and keeps no history — so a page
  * that must show everything has to use `watchWindow` instead. Without this flag a page cannot tell
@@ -344,6 +345,26 @@ export interface BonoboUiFrontendClient {
 				order?: "asc" | "desc";
 				since?: number;
 				before?: number;
+				scopeId?: string;
+			},
+			onUpdate: (update: BonoboUiDataWatchUpdate | null, info?: BonoboUiWatchDeathInfo) => void,
+		): () => void;
+		/**
+		 * Opens one reactive subscription on documents of `collection` that changed after
+		 * `updatedSince`, ordered by update time. Pass `scopeId` to read one private scope instead
+		 * of the public half; there is no key range here to resolve a scope from. An edit and a
+		 * soft-delete both bump `updatedAt` and surface here — that is the point, and it is why
+		 * this is not `watchRecent`. A physically deleted document is gone from the table and
+		 * cannot appear. Copy `updatedSince` from the newest `updatedAt` you have already applied;
+		 * omit it to start from the oldest update. The delivery contract is `watch`'s: each update
+		 * replaces the whole list, `null` ends the subscription, `limit` follows the same 1..100
+		 * rule, and the read spends the same frame slot and server subscription.
+		 */
+		watchChanges(
+			opts: {
+				collection: string;
+				limit: number;
+				updatedSince?: number;
 				scopeId?: string;
 			},
 			onUpdate: (update: BonoboUiDataWatchUpdate | null, info?: BonoboUiWatchDeathInfo) => void,

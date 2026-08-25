@@ -1001,6 +1001,113 @@ describe("data.watchRecent", () => {
 	});
 });
 
+describe("data.watchChanges", () => {
+	test("subscribes on watch_changes, passes the fencepost through, and delivers each update", async () => {
+		const client = await connect_client();
+
+		const onUpdate = vi.fn();
+		client.data.watchChanges(
+			{ collection: "messages", limit: 100, updatedSince: 1_700_000_000_000, scopeId: "scope-1" },
+			onUpdate,
+		);
+		const instance = convex_instance();
+		expect(instance.onUpdates).toHaveLength(1);
+		const registration = instance.onUpdates[0]!;
+		expect(getFunctionName(registration.query as never)).toBe("plugins_data:watch_changes");
+		expect(registration.args).toEqual({
+			collection: "messages",
+			limit: 100,
+			updatedSince: 1_700_000_000_000,
+			scopeId: "scope-1",
+		});
+
+		const firstDocs = [make_public_doc()];
+		registration.callback({ docs: firstDocs, truncated: false });
+		const secondDocs = [make_public_doc(), make_public_doc({ key: "m:2" })];
+		registration.callback({ docs: secondDocs, truncated: true });
+
+		expect(onUpdate).toHaveBeenNthCalledWith(1, { docs: firstDocs, truncated: false });
+		expect(onUpdate).toHaveBeenNthCalledWith(2, { docs: secondDocs, truncated: true });
+	});
+
+	test("omitted options are dropped, not forwarded as undefined", async () => {
+		const client = await connect_client();
+
+		client.data.watchChanges({ collection: "messages", limit: 50 }, vi.fn());
+		const registration = convex_instance().onUpdates[0]!;
+		expect(registration.args).toEqual({ collection: "messages", limit: 50 });
+		expect("updatedSince" in registration.args).toBe(false);
+		expect("scopeId" in registration.args).toBe(false);
+	});
+
+	test("a null answer kills the subscription with the same death contract as watch", async () => {
+		const client = await connect_client();
+
+		const onUpdate = vi.fn();
+		const unsubscribe = client.data.watchChanges({ collection: "messages", limit: 50 }, onUpdate);
+		const registration = convex_instance().onUpdates[0]!;
+
+		registration.callback(null);
+		expect(onUpdate).toHaveBeenNthCalledWith(1, null, {
+			reason: "denied",
+			message: "This plugin no longer has access to its data",
+		});
+		expect(registration.unsubscribed).toBe(true);
+
+		registration.callback({ docs: [make_public_doc()], truncated: false });
+		unsubscribe();
+		expect(onUpdate).toHaveBeenCalledTimes(1);
+	});
+
+	test("an out-of-range limit dies at birth and never reaches the client", async () => {
+		const client = await connect_client();
+
+		const onUpdate = vi.fn();
+		client.data.watchChanges({ collection: "messages", limit: 0 }, onUpdate);
+		expect(onUpdate).not.toHaveBeenCalled();
+		await flush_deliveries();
+		expect(onUpdate).toHaveBeenNthCalledWith(1, null, {
+			reason: "invalid",
+			message: "Watch limits must be integers from 1 to 100",
+		});
+		expect(convex_instance().onUpdates).toHaveLength(0);
+	});
+
+	test("changes watches share the page's sixteen slots and release them on death", async () => {
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const client = await connect_client();
+
+		for (let index = 1; index <= 15; index += 1) {
+			client.data.watch({ collection: "notes", limit: 10 }, vi.fn());
+		}
+		client.data.watchChanges({ collection: "messages", limit: 10 }, vi.fn());
+		expect(convex_instance().onUpdates).toHaveLength(16);
+
+		const onRefused = vi.fn();
+		client.data.watchChanges({ collection: "messages", limit: 10 }, onRefused);
+		await flush_deliveries();
+		expect(convex_instance().onUpdates).toHaveLength(16);
+		expect(onRefused).toHaveBeenNthCalledWith(1, null, {
+			reason: "capacity",
+			message: "Subscription limit reached for this plugin frame",
+		});
+		expect(warnSpy).toHaveBeenCalled();
+
+		convex_instance().onUpdates[15]!.callback(null);
+		client.data.watch({ collection: "notes", limit: 10 }, vi.fn());
+		expect(convex_instance().onUpdates).toHaveLength(17);
+	});
+
+	test("declares watchChanges on the client so a page can name the invalidation feed", async () => {
+		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
+		const changesDeclaration = declaration.match(/^\t\twatchChanges\([^]*?\): \(\) => void;/m)?.[0] ?? "";
+		expect(changesDeclaration).toContain("updatedSince?: number;");
+		expect(changesDeclaration).toContain(
+			"onUpdate: (update: BonoboUiDataWatchUpdate | null, info?: BonoboUiWatchDeathInfo) => void,",
+		);
+	});
+});
+
 describe("data.watchWindow", () => {
 	type FakeWatch = {
 		queryArgs: { collection: string; keyPrefix?: string; limit: number };
