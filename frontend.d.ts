@@ -181,8 +181,8 @@ export interface BonoboUiDataWatchUpdate {
 /**
  * One non-null `data.watchWindow` update. `docs` replaces the whole flattened window, ordered by
  * key. `hasMore` says older docs exist below the window (`loadOlder` fetches them). `atCapacity`
- * says the window cannot grow right now — either its own 6-interval budget or the frame's budget
- * of 24 server subscriptions is spent. `incomplete` says docs are missing in the middle of the
+ * says the window cannot grow right now — either its own 6-interval budget or the frame's
+ * 100-subscription backstop is spent. `incomplete` says docs are missing in the middle of the
  * window because an overflowing range could not be re-read; treat the list as gapped, not merely
  * short. Re-reading a range splits it in two, so it needs a free interval AND two free frame
  * subscriptions. `incomplete` stays false while a repair is running, and stays true once the range
@@ -312,11 +312,11 @@ export interface BonoboUiFrontendClient {
 		 * most 16 active subscriptions per frame (plain watches and windows share those slots);
 		 * one more dies at birth with `reason: "capacity"`.
 		 *
-		 * A second ceiling can refuse this watch long before those 16 slots are full. The frame
-		 * holds at most 24 server subscriptions: one per plain watch, one per window interval. A
-		 * grown window spends several, so four fully-grown windows spend all 24 while taking only
-		 * 4 of the 16 slots. A watch opened after that dies with `reason: "capacity"` too. Close a
-		 * window or a watch to get subscriptions back.
+		 * A second ceiling is a backstop for a buggy or hostile page, not a budget honest plugins
+		 * design against. The frame holds at most 100 server subscriptions: one per plain watch,
+		 * one per window interval. Slots and intervals are what shape a page — 16 fully-grown
+		 * windows spend 96, which stays under 100. A watch opened after that backstop is spent
+		 * dies with `reason: "capacity"` too. Close a window or a watch to get subscriptions back.
 		 */
 		watch(
 			opts: { collection: string; keyPrefix?: string; limit: number },
@@ -350,15 +350,28 @@ export interface BonoboUiFrontendClient {
 			onUpdate: (update: BonoboUiDataWatchUpdate | null, info?: BonoboUiWatchDeathInfo) => void,
 		): () => void;
 		/**
-		 * Opens one reactive subscription on documents of `collection` that changed after
+		 * Opens one reactive subscription on documents of `collection` that changed at or after
 		 * `updatedSince`, ordered by update time. Pass `scopeId` to read one private scope instead
 		 * of the public half; there is no key range here to resolve a scope from. An edit and a
 		 * soft-delete both bump `updatedAt` and surface here — that is the point, and it is why
 		 * this is not `watchRecent`. A physically deleted document is gone from the table and
-		 * cannot appear. Copy `updatedSince` from the newest `updatedAt` you have already applied;
-		 * omit it to start from the oldest update. The delivery contract is `watch`'s: each update
-		 * replaces the whole list, `null` ends the subscription, `limit` follows the same 1..100
-		 * rule, and the read spends the same frame slot and server subscription.
+		 * cannot appear.
+		 *
+		 * `updatedSince` is an inclusive lower bound. Copy it from the newest `updatedAt` you have
+		 * already applied; omit it to start from the oldest update. `updatedAt` is whole-millisecond
+		 * `Date.now()`, and one write batch stamps every document with the same value, so a change
+		 * whose `updatedAt` equals the cursor must still be delivered. Over-delivery of that
+		 * millisecond is free: merge by key and revision. Advance the cursor only when a later
+		 * `updatedAt` arrives, or the same-millisecond re-delivery will re-subscribe in a loop.
+		 * If a delivery is truncated and every document is still on the cursor millisecond, pass
+		 * `newest + 1` so the live query can leave those 100 rows. That step can permanently skip tied rows past the first 100
+		 * when 101 or more documents in one collection and scope share the same `Date.now()` millisecond, reachable only
+		 * through parallel bulk imports on the batch door (three 50-document mutations in one millisecond); replies and
+		 * reactions have no heal for it, and messages heal one page.
+		 *
+		 * The delivery contract is `watch`'s: each update replaces the whole list, `null` ends the
+		 * subscription, `limit` follows the same 1..100 rule, and the read spends the same frame
+		 * slot and server subscription.
 		 */
 		watchChanges(
 			opts: {
@@ -378,11 +391,11 @@ export interface BonoboUiFrontendClient {
 		 * death contract as `watch`. A window can hold up to 6 internal reads (600 docs at
 		 * `pageSize` 100); past that it reports `atCapacity` instead of growing.
 		 *
-		 * The frame's 24 server subscriptions are the other ceiling. Every internal read of every
-		 * window spends one, so four fully-grown windows spend the whole frame budget. A window
-		 * reports `atCapacity` and refuses `loadOlder()` as soon as that budget is gone, which
-		 * can happen long before its own 6 reads are used. The same ceiling kills a new window at
-		 * birth with `reason: "capacity"`.
+		 * The frame's 100 server subscriptions are a backstop for buggy or hostile pages, not a
+		 * budget honest plugins design against. Every internal read of every window spends one.
+		 * Slots and intervals are what shape a page (16 × 6 = 96). A window reports `atCapacity`
+		 * and refuses `loadOlder()` when its own 6 reads are used, or if that backstop is gone.
+		 * The same backstop kills a new window at birth with `reason: "capacity"`.
 		 *
 		 * That budget has a third effect, and it is the one that loses docs. When new docs overflow
 		 * a range the window already holds, the window re-reads that range as two smaller ones, so

@@ -48,8 +48,9 @@ const MEMBERS_MAX_LIST_PAGE_SIZE = 100;
 // cannot meter reactive reads per session, so this is what keeps an honest page bounded.
 // 16, not 8: `scopes.watchMine` tells a plugin to open one ranged read per private scope, and
 // under 8 slots that guidance died at two scopes with a channel open (three windows plus a
-// thread watch). The server-subscription ceiling below stays the real cost bound, and 16 slots
-// remain coherent under it — three fully grown windows (18) plus six plain watches is exactly 24.
+// thread watch). Slots and intervals are what shape a page. The server-subscription count
+// below is only a backstop for buggy or hostile pages — 16 slots × 6 intervals = 96, which
+// stays under 100.
 const MAX_WATCH_SUBSCRIPTIONS = 16;
 
 // Key intervals one document window may hold, committed plus pending. Worst case per window:
@@ -58,9 +59,11 @@ const MAX_WATCH_SUBSCRIPTIONS = 16;
 const MAX_WINDOW_INTERVALS = 6;
 
 // Server subscriptions across the whole page: one per plain watch, one per window interval,
-// committed and pending alike. Every subscription re-reads the session's auth docs when a write
-// invalidates it, so this ceiling bounds that fan-out.
-const MAX_PAGE_SERVER_SUBSCRIPTIONS = 24;
+// committed and pending alike. This is a backstop for a buggy or hostile page, not a budget
+// honest plugins design against. Every subscription re-reads the session's auth docs when a
+// write invalidates it, so this ceiling bounds that fan-out. Honest pages stay inside the
+// 16-slot and 6-interval caps above (96 server subscriptions at worst).
+const MAX_PAGE_SERVER_SUBSCRIPTIONS = 100;
 
 /**
  * Reads a host theme off a bridge message.
@@ -970,8 +973,11 @@ function bonobo_ui_create_data_api(deps) {
 		},
 		watchChanges(opts, onUpdate) {
 			// Update-time order: an edit or a soft-delete of an old document surfaces here. Creation
-			// order cannot answer that, which is why this is not `watchRecent`. The server judges
-			// `updatedSince` and `scopeId`; a bad number dies as a bare null like any other refused read.
+			// order cannot answer that, which is why this is not `watchRecent`. `updatedSince` is an
+			// inclusive fence: copy the newest applied `updatedAt` as-is so a same-millisecond sibling
+			// is not lost. If a truncated delivery is still on that millisecond, pass `newest + 1` so
+			// the live query can leave those 100 rows. The server judges `updatedSince` and `scopeId`;
+			// a bad number dies as a bare null like any other refused read.
 			const invalid = validate_watch_inputs({ collection: opts.collection, limit: opts.limit });
 			if (invalid) {
 				deliver_death_async(onUpdate, { reason: "invalid", message: invalid });

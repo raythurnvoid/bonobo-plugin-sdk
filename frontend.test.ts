@@ -746,6 +746,7 @@ describe("data.watch", () => {
 		expect(watchDeclaration).toContain(
 			"onUpdate: (update: BonoboUiDataWatchUpdate | null, info?: BonoboUiWatchDeathInfo) => void,",
 		);
+		expect(declaration).toContain("at most 100 server subscriptions");
 
 		// The callback type is only worth as much as the interface behind it.
 		const watchUpdateInterface = declaration.match(/export interface BonoboUiDataWatchUpdate \{[^]*?\n\}/)?.[0] ?? "";
@@ -1102,6 +1103,9 @@ describe("data.watchChanges", () => {
 		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
 		const changesDeclaration = declaration.match(/^\t\twatchChanges\([^]*?\): \(\) => void;/m)?.[0] ?? "";
 		expect(changesDeclaration).toContain("updatedSince?: number;");
+		expect(declaration).toContain("updatedSince` is an inclusive lower bound");
+		expect(declaration).toContain("`newest + 1` so the live query can leave those 100 rows");
+		expect(declaration).toContain("permanently skip tied rows past the first 100");
 		expect(changesDeclaration).toContain(
 			"onUpdate: (update: BonoboUiDataWatchUpdate | null, info?: BonoboUiWatchDeathInfo) => void,",
 		);
@@ -1804,20 +1808,40 @@ describe("data.watchWindow", () => {
 		expect(startedWatches).toHaveLength(16);
 	});
 
-	// The page's server-subscription ceiling is the second, lower cap: 24 across the page, one
-	// per plain watch and one per window interval. Four windows at their 6-interval limit spend
-	// all 24 while holding only four of the sixteen page-visible slots.
-	test("four fully-grown windows spend the page's 24 server subscriptions and refuse the next watch", async () => {
+	// The page's server-subscription ceiling is a backstop at 100, one per plain watch and one
+	// per window interval. Four windows at their 6-interval limit spend 24 of 100 while holding
+	// only four of the sixteen page-visible slots, so the next watch must live. On the old 24
+	// ceiling this assertion was `expected 25, received 24`.
+	test("four fully-grown windows leave room under the 100-subscription backstop", async () => {
+		const harness = await make_data_api();
+		const { api, startedWatches } = harness;
+		const live_watches = () => startedWatches.filter((watch) => !watch.disposed);
+
+		await grow_window(harness, "a:");
+		await grow_window(harness, "b:");
+		await grow_window(harness, "c:");
+		await grow_window(harness, "d:");
+		expect(live_watches()).toHaveLength(24);
+
+		const onRefused = vi.fn();
+		api.watch({ collection: "notes", limit: 10 }, onRefused);
+		await flush_deliveries();
+		expect(onRefused).not.toHaveBeenCalled();
+		expect(live_watches()).toHaveLength(25);
+	});
+
+	test("sixteen fully-grown windows spend 96 of the 100-subscription backstop and the seventeenth watch dies as capacity", async () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const harness = await make_data_api();
 		const { api, startedWatches } = harness;
 		const live_watches = () => startedWatches.filter((watch) => !watch.disposed);
 
-		const { handle: firstWindow } = await grow_window(harness, "a:");
-		await grow_window(harness, "b:");
-		await grow_window(harness, "c:");
-		await grow_window(harness, "d:");
-		expect(live_watches()).toHaveLength(24);
+		const prefixes = "abcdefghijklmnop";
+		const { handle: firstWindow } = await grow_window(harness, `${prefixes[0]}:`);
+		for (const letter of prefixes.slice(1)) {
+			await grow_window(harness, `${letter}:`);
+		}
+		expect(live_watches()).toHaveLength(96);
 
 		const onRefused = vi.fn();
 		api.watch({ collection: "notes", limit: 10 }, onRefused);
@@ -1827,67 +1851,46 @@ describe("data.watchWindow", () => {
 			message: "Subscription limit reached for this plugin frame",
 		});
 		expect(warnSpy).toHaveBeenCalled();
-		// The ceiling is checked before the read starts, so the refusal subscribed to nothing.
-		expect(live_watches()).toHaveLength(24);
+		expect(live_watches()).toHaveLength(96);
 
-		// Closing one window returns its six subscriptions and the same watch starts. That is
-		// what proves the refusal above came from the 24-subscription ceiling: the page-visible
-		// count only went from four windows to three, nowhere near the sixteen-slot cap.
+		// Closing one window returns its six subscriptions and one slot. The same watch starts.
+		// That is what proves the refusal above came from the sixteen-slot cap: 90 server
+		// subscriptions still sit well under the 100 backstop.
 		firstWindow.unsubscribe();
-		expect(live_watches()).toHaveLength(18);
+		expect(live_watches()).toHaveLength(90);
 		api.watch({ collection: "notes", limit: 10 }, vi.fn());
-		expect(live_watches()).toHaveLength(19);
+		expect(live_watches()).toHaveLength(91);
 	});
 
-	test("the same spent budget kills a new window at birth with reason capacity", async () => {
-		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+	test("four fully-grown windows do not kill a new window at birth", async () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const harness = await make_data_api();
 		const { api, startedWatches } = harness;
 		const live_watches = () => startedWatches.filter((watch) => !watch.disposed);
 
-		const { handle: firstWindow } = await grow_window(harness, "a:");
+		await grow_window(harness, "a:");
 		await grow_window(harness, "b:");
 		await grow_window(harness, "c:");
 		await grow_window(harness, "d:");
 		expect(live_watches()).toHaveLength(24);
 
-		// Four windows hold four of the sixteen page-visible slots, so only the 24-subscription
-		// ceiling can refuse this one. Without the check here the window would be created and its
-		// head read would fail on the spent budget. The page would then hear an unexplained null
-		// and a console error, with nothing telling it to close a window first.
 		const onRefused = vi.fn();
 		const handle = api.watchWindow({ collection: "messages", keyPrefix: "e:", pageSize: 3 }, onRefused);
 		await flush_deliveries();
-		expect(live_watches()).toHaveLength(24);
-		expect(onRefused).toHaveBeenNthCalledWith(1, null, {
-			reason: "capacity",
-			message: "Subscription limit reached for this plugin frame",
-		});
-		expect(warnSpy).toHaveBeenCalled();
+		expect(live_watches()).toHaveLength(25);
+		expect(onRefused).not.toHaveBeenCalled();
 		expect(errorSpy).not.toHaveBeenCalled();
 
-		handle.loadOlder();
 		handle.unsubscribe();
 		expect(live_watches()).toHaveLength(24);
-
-		// Closing one window returns its six subscriptions and the refused window opens, which
-		// is what proves the refusal came from the 24-subscription ceiling: the page-visible
-		// count only went from four windows to three, nowhere near the sixteen-slot cap.
-		firstWindow.unsubscribe();
-		expect(live_watches()).toHaveLength(18);
-		api.watchWindow({ collection: "messages", keyPrefix: "e:", pageSize: 3 }, vi.fn());
-		expect(live_watches()).toHaveLength(19);
 	});
 
-	test("a split refused by the page's spent server budget reports incomplete", async () => {
+	test("a split still starts when four windows have spent 24 of the 100-subscription backstop", async () => {
 		const harness = await make_data_api();
 		const { api, startedWatches } = harness;
 
 		// Three full windows plus a two-interval one spend 20 subscriptions. Four plain watches
-		// spend the last four. That spends all 24 server subscriptions while only 8 of the 16
-		// page-visible slots are taken, and the small window still has four of its own six
-		// interval slots free.
+		// spend four more. That is the old 24-subscription fill: it used to refuse this split.
 		await grow_window(harness, "a:");
 		await grow_window(harness, "b:");
 		await grow_window(harness, "c:");
@@ -1898,35 +1901,20 @@ describe("data.watchWindow", () => {
 		const liveWindowWatches = startedWatches.filter((watch) => !watch.disposed && watch.queryArgs.keyPrefix === "d:");
 		expect(liveWindowWatches).toHaveLength(2);
 
-		// Arrivals overflow the small window's first interval. Its own interval budget allows the
-		// split, but the page has no server subscription left to start it, so the range stays
-		// truncated and the docs it dropped are missing from the middle of the list.
 		await deliver(liveWindowWatches[0]!, [{ key: "d:0a" }, { key: "d:0b" }, { key: "d:1:1" }], true);
-		expect(startedWatches.filter((watch) => !watch.disposed)).toHaveLength(24);
-		expect(window_updates(onUpdate).at(-1)).toEqual([
-			{
-				docs: [
-					{ key: "d:0a" },
-					{ key: "d:0b" },
-					{ key: "d:1:1" },
-					{ key: "d:2:1" },
-					{ key: "d:2:2" },
-					{ key: "d:2:3" },
-				],
-				hasMore: true,
-				atCapacity: true,
-				incomplete: true,
-			},
-		]);
+		expect(startedWatches.filter((watch) => !watch.disposed).length).toBeGreaterThan(24);
+		expect(window_updates(onUpdate).at(-1)?.[0]).toMatchObject({
+			incomplete: false,
+		});
 	});
 
-	test("one free slot is not two: a split that cannot start reports incomplete", async () => {
+	test("a split that needs two server slots still starts when 23 of 100 are spent", async () => {
 		const harness = await make_data_api();
 		const { api, startedWatches } = harness;
 
 		// Three full windows plus a two-interval one spend 20 subscriptions, and THREE plain
-		// watches spend three more. That leaves exactly one free server slot — the case the
-		// zero-free-slots test cannot reach.
+		// watches spend three more. That is the old "one free slot of 24" fill: it used to
+		// start the left replacement, refuse the right, and report incomplete.
 		await grow_window(harness, "a:");
 		await grow_window(harness, "b:");
 		await grow_window(harness, "c:");
@@ -1938,27 +1926,11 @@ describe("data.watchWindow", () => {
 		const liveWindowWatches = startedWatches.filter((watch) => !watch.disposed && watch.queryArgs.keyPrefix === "d:");
 		expect(liveWindowWatches).toHaveLength(2);
 
-		// A split starts two watchers while the parent still holds its own, so one free slot is
-		// not enough: left takes the last one, right is refused, left is stopped and the split
-		// breaks. The page is back to 23 of 24 — so a ceiling test that only asks "are we full?"
-		// answers no, and the window would report a hole it cannot repair as incomplete: false.
 		await deliver(liveWindowWatches[0]!, [{ key: "d:0a" }, { key: "d:0b" }, { key: "d:1:1" }], true);
-		expect(startedWatches.filter((watch) => !watch.disposed)).toHaveLength(23);
-		expect(window_updates(onUpdate).at(-1)).toEqual([
-			{
-				docs: [
-					{ key: "d:0a" },
-					{ key: "d:0b" },
-					{ key: "d:1:1" },
-					{ key: "d:2:1" },
-					{ key: "d:2:2" },
-					{ key: "d:2:3" },
-				],
-				hasMore: true,
-				atCapacity: false,
-				incomplete: true,
-			},
-		]);
+		expect(startedWatches.filter((watch) => !watch.disposed).length).toBeGreaterThan(23);
+		expect(window_updates(onUpdate).at(-1)?.[0]).toMatchObject({
+			incomplete: false,
+		});
 	});
 
 	test("invalid window inputs die at birth and the handle is inert", async () => {
