@@ -197,11 +197,14 @@ export interface BonoboUiDataWindowUpdate {
 
 /**
  * Per-operation write results, exactly the shapes the store's five write doors answer.
- * `_nay.name` is `"conflict"` for revision, ownership, and key conflicts, and `"storage_full"`
- * when the store is out of capacity; other refusals carry only a message.
+ * `_nay.name` is `"conflict"` for revision, ownership, and key conflicts, `"storage_full"`
+ * when the store is out of capacity, and `"unavailable"` when the write call itself fails.
+ * Other backend refusals carry only a message.
  */
 export type BonoboUiDataWriteNay = { _nay: { name?: string; message: string } };
-export type BonoboUiDataAppendResult = { _yay: { key: string; revision: number; byteSize: number } } | BonoboUiDataWriteNay;
+export type BonoboUiDataAppendResult =
+	| { _yay: { key: string; revision: number; byteSize: number } }
+	| BonoboUiDataWriteNay;
 export type BonoboUiDataPutResult = { _yay: { revision: number; byteSize: number } } | BonoboUiDataWriteNay;
 export type BonoboUiDataPutOwnedResult =
 	| { _yay: { key: string; revision: number; byteSize: number } }
@@ -294,7 +297,7 @@ export interface BonoboUiFrontendClient {
 	 * Convex subscriptions; writes run as the viewing member, attributed to the session's user.
 	 * Every write RESOLVES with a {@link BonoboUiDataWriteResult} — `_nay` resolves too, and a
 	 * failed call (network loss, an unserializable payload) resolves the stable
-	 * `{ _nay: { message: "Failed to write plugin data" } }` instead of rejecting.
+	 * `{ _nay: { name: "unavailable", message: "Failed to write plugin data" } }` instead of rejecting.
 	 */
 	data: {
 		/**
@@ -443,7 +446,9 @@ export interface BonoboUiFrontendClient {
 		 * `<key>:<userId>`, using the viewing member's `userId` from the init context. The stored
 		 * key must fit the 128-character key limit, so `key` may be at most
 		 * `128 - userId.length - 1` characters. `expectedRevision` works like `put`, judged
-		 * against this member's own document at the composed key.
+		 * against this member's own document at the composed key. With `expectedRevision: 0`,
+		 * a normal shared document squatting that composed key is replaced by a fresh owned document;
+		 * a versioned producer document or another member's owned document still refuses.
 		 */
 		putOwned(opts: {
 			collection: string;
@@ -507,50 +512,91 @@ export interface BonoboUiFrontendClient {
 	 * a locked placeholder from some other source — a placeholder tells the member the channel
 	 * exists, which is the one thing the scope is for.
 	 *
-	 * Two things the page must say out loud. The organization owner passes every permission check
+	 * Three things the page must say or handle. The organization owner passes every permission check
 	 * before any grant is read, so the owner reads every scope; copy that says "private" without
-	 * saying that is a disclosure. And a member may hold at most 50 scopes, so a page that creates
-	 * them has to let members delete one too.
+	 * saying that is a disclosure. A member may hold at most 50 scopes, so a page that creates them
+	 * has to let members leave one too. One installation may create at most 1,000 scope ids over its
+	 * lifetime; uninstalling and reinstalling resets that cap.
 	 */
 	scopes: {
 		/**
-		 * Creates a scope, or answers yes again for one that already exists with the same range. The
-		 * caller receives the first `manage` grant on it.
+		 * Creates a scope, or answers yes again for one the caller can still read that already exists
+		 * with the same range. The caller receives the first `manage` grant on a new scope.
 		 *
 		 * Name every collection the private area spans in one call. That costs one scope against the
 		 * member's cap, and it is the only way to create it over all of them at once: a scope built
 		 * one collection at a time leaves the rest readable in between.
 		 *
 		 * The key range must be free — no other scope may overlap it, and no document may already
-		 * sit in it. Write the documents after this call answers, never before.
+		 * sit in it. Write the documents after this call answers, never before. A scope id and its
+		 * range can never be reused during this installation's lifetime, even when the scope was empty.
+		 * Create number 1,001 is refused with `storage_full`.
 		 */
 		create(opts: { scopeId: string; collections: string[]; keyPrefix: string }): Promise<BonoboUiScopeResult>;
 		/**
+		 * Creates a scope, its full first principal list, and one shared document in one transaction.
+		 * Use this when the document is what makes the private area visible. Every check runs before
+		 * any row is written, and the whole setup uses one page-write rate-limit charge.
+		 *
+		 * The creator is added with `manage` automatically. Do not include them in `principals`.
+		 * The document's collection must be named by the scope and its key must start with `keyPrefix`.
+		 */
+		createWithDocument(opts: {
+			scopeId: string;
+			collections: string[];
+			keyPrefix: string;
+			principals: { userId: string; level: "member" | "manage" }[];
+			document: { collection: string; key: string; value: Record<string, unknown> };
+		}): Promise<BonoboUiScopeResult>;
+		/**
 		 * Adds somebody to the scope, or changes the level they already hold. `member` reads and
 		 * writes inside it; `manage` also changes who else is in it. Needs `manage` on this scope —
-		 * a workspace role, however senior, gives nothing here.
+		 * a workspace role, however senior, gives nothing here. The host refuses without writing when
+		 * adding the person would put them over their private-scope cap. A manager cannot change their
+		 * own level to `member`; use `removePrincipal` to leave.
 		 */
 		setPrincipal(opts: { scopeId: string; userId: string; level: "member" | "manage" }): Promise<BonoboUiScopeResult>;
 		/**
-		 * Takes somebody out of the scope. Needs `manage`. Removing yourself is refused: a scope with
-		 * nobody left in it could never be reached or deleted again, so delete it instead.
+		 * Takes somebody out of the scope. Taking somebody else out needs `manage`. Taking yourself
+		 * out is always allowed when you are in the scope. If you are the last active person in the scope,
+		 * leaving deletes the scope and its grants; the documents stay until the plugin is uninstalled.
+		 * If the last manager leaves a shared scope, the host promotes the remaining active person with the
+		 * lowest stable user id to `manage`.
+		 * The result's `deleted` flag says which happened. Its `membershipRevision` is the scope
+		 * membership change this call made. Compare it with `watchMine` when another manager may add
+		 * the member back before the Leave reply arrives. Pass `expectedPrincipalCount` when copy
+		 * promised one outcome; if the count changed, the host refuses without writing so the person
+		 * can confirm again.
 		 */
-		removePrincipal(opts: { scopeId: string; userId: string }): Promise<BonoboUiScopeResult>;
+		removePrincipal(opts: {
+			scopeId: string;
+			userId: string;
+			expectedPrincipalCount?: number;
+		}): Promise<BonoboUiScopeResult>;
 		/**
 		 * Deletes the scope and every grant on it. Needs `manage`.
 		 *
-		 * The documents stay where they are, and their key range cannot be claimed by a new scope
-		 * afterwards. Delete them first if the range should become reusable.
+		 * The documents stay where they are. The scope id and key range stay reserved until the
+		 * plugin is uninstalled, even when the scope stored no document. This keeps a stale frame from
+		 * writing private data as public after deletion.
 		 */
-		delete(opts: { scopeId: string }): Promise<BonoboUiScopeResult>;
+		delete(opts: { scopeId: string; expectedPrincipalCount?: number }): Promise<BonoboUiScopeResult>;
 		/**
-		 * Who is in the scope. Resolves `null` for a caller the scope does not name, which is also
-		 * the answer for a scope that does not exist — so a refusal reveals nothing.
+		 * Which active workspace members are in the scope. Retained grants for inactive or deleted
+		 * members are omitted, so this list's count matches leave and delete confirmation checks.
+		 * An organization owner receives the full principal list without a scope grant. For any other
+		 * caller the `_yay` value is `null` when the scope does not name them, which is also the answer
+		 * for a scope that does not exist — so a refusal reveals nothing. Compare the returned user ids
+		 * with the caller's own user id; a non-null list alone does not prove scope membership.
 		 *
 		 * Use it to show and edit a share list. Without it a page can add people to a private
 		 * channel and can never show or change the list again.
+		 *
+		 * An exact query answer resolves `{ _yay: principals }`, including `{ _yay: null }` for
+		 * the unreadable or absent case above. A transport failure or malformed response resolves
+		 * `{ _nay: { name: "unavailable", message: "Failed to read who can access this" } }`.
 		 */
-		listPrincipals(opts: { scopeId: string }): Promise<BonoboUiScopePrincipal[] | null>;
+		listPrincipals(opts: { scopeId: string }): Promise<BonoboUiScopePrincipalListResult>;
 		/**
 		 * Watches which scopes this member is in. This is how a page finds its private documents
 		 * again: a read with no `keyPrefix` answers only the public part of a collection, and the
@@ -569,9 +615,7 @@ export interface BonoboUiFrontendClient {
 		 * `data.watch`. It holds one of the frame's subscription slots. Returns an unsubscribe
 		 * function; calling it after a `null` update, or a second time, is a no-op.
 		 */
-		watchMine(
-			onUpdate: (scopes: BonoboUiScope[] | null, info?: BonoboUiWatchDeathInfo) => void,
-		): () => void;
+		watchMine(onUpdate: (scopes: BonoboUiScope[] | null, info?: BonoboUiWatchDeathInfo) => void): () => void;
 	};
 }
 
@@ -581,24 +625,48 @@ export interface BonoboUiScopePrincipal {
 	level: "member" | "manage";
 }
 
+/**
+ * The result of reading a scope's active principals. `_yay: null` is an exact unreadable or absent
+ * answer. `_nay` means the query outcome is unavailable and may be retried.
+ */
+export type BonoboUiScopePrincipalListResult =
+	| { _yay: BonoboUiScopePrincipal[] | null }
+	| { _nay: { name: "unavailable"; message: string } };
+
 /** One scope this member is in, as {@link BonoboUiFrontendClient.scopes.watchMine} reports it. */
 export interface BonoboUiScope {
 	scopeId: string;
 	/** Every key under this prefix belongs to the scope, in each of its `collections`. */
 	keyPrefix: string;
 	collections: string[];
+	/**
+	 * Durable last successful append in each private collection that has one, sorted by collection.
+	 * `sequence` increases for each new accepted append in that collection. The document and activity
+	 * commit together. This does not change `membershipRevision`.
+	 */
+	appendActivity: Array<{ collection: string; at: number; createdByUserId: string; sequence: number }>;
 	level: "member" | "manage";
+	/** Increases on every successful change to this scope's members or their levels. */
+	membershipRevision: number;
 }
 
 /**
- * The result of one scope change. Like a data write it resolves rather than rejects, and a failed
- * call resolves a stable `_nay` instead of throwing.
+ * The result of one scope change. Like a data write it resolves rather than rejects. A transport
+ * or runtime failure resolves `{ _nay: { name: "unavailable", message: "Failed to change who can
+ * read this" } }` instead of throwing. Ordinary backend results pass through unchanged.
  *
- * `_nay.name` is `"conflict"` when the scope id already covers a different key range, when another
- * scope overlaps the range, or when the range already holds documents. Other refusals carry a
+ * `_nay.name` is `"conflict"` when the scope id is unavailable, when another scope overlaps the
+ * range, when the range already holds documents, or when a confirmed principal count changed.
+ * Lifecycle calls give the same opaque refusal for an unreadable live scope and an absent or
+ * released one. Unreadable live and released range overlaps also share one opaque answer.
+ * Creating scope id 1,001 for one installation uses `"storage_full"`. Other refusals carry a
  * message only.
  */
-export type BonoboUiScopeResult = { _yay: { scopeId: string } } | BonoboUiDataWriteNay;
+export type BonoboUiScopeResult =
+	| {
+			_yay: { scopeId: string; deleted: boolean; membershipRevision: number };
+	  }
+	| BonoboUiDataWriteNay;
 
 /**
  * Connects the frame to the embedding host app. It installs one shared `message` listener (for

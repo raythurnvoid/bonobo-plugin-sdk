@@ -83,11 +83,7 @@ function convex_instance() {
 }
 
 function set_bridge_fragment(parentOrigin = HOST_ORIGIN, bridgeNonce = BRIDGE_NONCE) {
-	window.history.replaceState(
-		null,
-		"",
-		`/#${new URLSearchParams({ parentOrigin, bridgeNonce }).toString()}`,
-	);
+	window.history.replaceState(null, "", `/#${new URLSearchParams({ parentOrigin, bridgeNonce }).toString()}`);
 }
 
 /** Simulates one host → page postMessage. */
@@ -1457,14 +1453,7 @@ describe("data.watchWindow", () => {
 		await deliver(startedWatches[10]!, [{ key: "m:0a" }, { key: "m:0b" }, { key: "m:1:1" }], false);
 		expect(window_updates(onUpdate).at(-1)).toEqual([
 			{
-				docs: [
-					{ key: "m:0a" },
-					{ key: "m:0b" },
-					{ key: "m:1:1" },
-					{ key: "m:1:2" },
-					{ key: "m:1:3" },
-					...olderPages,
-				],
+				docs: [{ key: "m:0a" }, { key: "m:0b" }, { key: "m:1:1" }, { key: "m:1:2" }, { key: "m:1:3" }, ...olderPages],
 				hasMore: true,
 				atCapacity: true,
 				incomplete: false,
@@ -1969,9 +1958,9 @@ describe("data writes", () => {
 		await expect(
 			client.data.append({ collection: "replies", keyPrefix: "r:", value: { body: "yo" }, clientRequestId: "req_1" }),
 		).resolves.toBe(appendResult);
-		await expect(
-			client.data.put({ collection: "messages", key: "m:1", value: { body: "hi" } }),
-		).resolves.toBe(putResult);
+		await expect(client.data.put({ collection: "messages", key: "m:1", value: { body: "hi" } })).resolves.toBe(
+			putResult,
+		);
 		await expect(client.data.remove({ collection: "messages", key: "m:1" })).resolves.toEqual({
 			_yay: { deleted: true },
 		});
@@ -2012,13 +2001,13 @@ describe("data writes", () => {
 		]);
 	});
 
-	test("a thrown mutation resolves the stable generic _nay", async () => {
+	test("a thrown mutation resolves the stable unavailable _nay", async () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const client = await connect_client();
 		convex_instance().mutation.mockRejectedValue(new Error("ArgumentValidationError"));
 
 		await expect(client.data.put({ collection: "notes", key: "k1", value: { body: "hi" } })).resolves.toEqual({
-			_nay: { message: "Failed to write plugin data" },
+			_nay: { name: "unavailable", message: "Failed to write plugin data" },
 		});
 		expect(errorSpy).toHaveBeenCalled();
 	});
@@ -2242,11 +2231,11 @@ describe("scopes", () => {
 	test("every change goes through one mutation, shaped as the action union the door takes", async () => {
 		const client = await connect_client();
 		const instance = convex_instance();
-		instance.mutation.mockResolvedValue({ _yay: { scopeId: "dm-1" } });
+		instance.mutation.mockResolvedValue({ _yay: { scopeId: "dm-1", deleted: false, membershipRevision: 4 } });
 
 		await expect(
 			client.scopes.create({ scopeId: "dm-1", collections: ["channels", "messages"], keyPrefix: "p/dm-1" }),
-		).resolves.toEqual({ _yay: { scopeId: "dm-1" } });
+		).resolves.toEqual({ _yay: { scopeId: "dm-1", deleted: false, membershipRevision: 4 } });
 		expect(getFunctionName(instance.mutation.mock.calls[0]?.[0] as never)).toBe("plugins_data:user_manage_scope");
 		// One call names every collection. Creating the scope one collection at a time would leave the
 		// others readable in between, and would cost the member one scope per collection.
@@ -2259,16 +2248,69 @@ describe("scopes", () => {
 			action: { kind: "set_principal", scopeId: "dm-1", userId: "user_2", level: "member" },
 		});
 
-		await client.scopes.removePrincipal({ scopeId: "dm-1", userId: "user_2" });
+		await client.scopes.removePrincipal({ scopeId: "dm-1", userId: "user_2", expectedPrincipalCount: 2 });
 		expect(instance.mutation.mock.calls[2]?.[1]).toEqual({
-			action: { kind: "remove_principal", scopeId: "dm-1", userId: "user_2" },
+			action: {
+				kind: "remove_principal",
+				scopeId: "dm-1",
+				userId: "user_2",
+				expectedPrincipalCount: 2,
+			},
 		});
 
+		await client.scopes.delete({ scopeId: "dm-1", expectedPrincipalCount: 2 });
+		expect(instance.mutation.mock.calls[3]?.[1]).toEqual({
+			action: { kind: "delete", scopeId: "dm-1", expectedPrincipalCount: 2 },
+		});
+
+		await client.scopes.removePrincipal({ scopeId: "dm-1", userId: "user_2" });
 		await client.scopes.delete({ scopeId: "dm-1" });
-		expect(instance.mutation.mock.calls[3]?.[1]).toEqual({ action: { kind: "delete", scopeId: "dm-1" } });
+		expect(instance.mutation.mock.calls[4]?.[1]).toEqual({
+			action: { kind: "remove_principal", scopeId: "dm-1", userId: "user_2" },
+		});
+		expect(instance.mutation.mock.calls[5]?.[1]).toEqual({ action: { kind: "delete", scopeId: "dm-1" } });
 	});
 
-	test("a refusal resolves, and a failed call resolves a stable message instead of rejecting", async () => {
+	test("createWithDocument sends the full private setup through one mutation", async () => {
+		const client = await connect_client();
+		const instance = convex_instance();
+		instance.mutation.mockResolvedValue({
+			_yay: { scopeId: "p/dm-atomic", deleted: false, membershipRevision: 1 },
+		});
+
+		await expect(
+			client.scopes.createWithDocument({
+				scopeId: "p/dm-atomic",
+				collections: ["channels", "messages", "replies", "reactions"],
+				keyPrefix: "p/dm-atomic",
+				principals: [{ userId: "user_2", level: "member" }],
+				document: {
+					collection: "channels",
+					key: "p/dm-atomic",
+					value: { name: "Private room", archivedAt: null },
+				},
+			}),
+		).resolves.toEqual({ _yay: { scopeId: "p/dm-atomic", deleted: false, membershipRevision: 1 } });
+
+		expect(instance.mutation).toHaveBeenCalledTimes(1);
+		expect(getFunctionName(instance.mutation.mock.calls[0]?.[0] as never)).toBe("plugins_data:user_manage_scope");
+		expect(instance.mutation.mock.calls[0]?.[1]).toEqual({
+			action: {
+				kind: "create_with_document",
+				scopeId: "p/dm-atomic",
+				collections: ["channels", "messages", "replies", "reactions"],
+				keyPrefix: "p/dm-atomic",
+				principals: [{ userId: "user_2", level: "member" }],
+				document: {
+					collection: "channels",
+					key: "p/dm-atomic",
+					value: { name: "Private room", archivedAt: null },
+				},
+			},
+		});
+	});
+
+	test("a refusal passes through, and a failed call resolves unavailable instead of rejecting", async () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const client = await connect_client();
 		const instance = convex_instance();
@@ -2276,32 +2318,46 @@ describe("scopes", () => {
 		instance.mutation.mockResolvedValueOnce({
 			_nay: { name: "conflict", message: "Another scope already covers part of this key range" },
 		});
-		await expect(client.scopes.create({ scopeId: "dm-2", collections: ["messages"], keyPrefix: "p/dm-2" })).resolves
-			.toEqual({ _nay: { name: "conflict", message: "Another scope already covers part of this key range" } });
+		await expect(
+			client.scopes.create({ scopeId: "dm-2", collections: ["messages"], keyPrefix: "p/dm-2" }),
+		).resolves.toEqual({ _nay: { name: "conflict", message: "Another scope already covers part of this key range" } });
 
 		instance.mutation.mockRejectedValueOnce(new Error("network"));
 		await expect(client.scopes.delete({ scopeId: "dm-2" })).resolves.toEqual({
-			_nay: { message: "Failed to change who can read this" },
+			_nay: { name: "unavailable", message: "Failed to change who can read this" },
 		});
 		expect(errorSpy).toHaveBeenCalled();
 	});
 
-	test("reading the people in a scope answers null for a caller the scope does not name", async () => {
+	test("reading the people in a scope separates exact null from unavailable and validates the result", async () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const client = await connect_client();
 		const instance = convex_instance();
 
 		instance.query.mockResolvedValueOnce([{ userId: "user_2", level: "manage" }]);
-		await expect(client.scopes.listPrincipals({ scopeId: "dm-3" })).resolves.toEqual([
-			{ userId: "user_2", level: "manage" },
-		]);
+		await expect(client.scopes.listPrincipals({ scopeId: "dm-3" })).resolves.toEqual({
+			_yay: [{ userId: "user_2", level: "manage" }],
+		});
 		expect(getFunctionName(instance.query.mock.calls[0]?.[0] as never)).toBe("plugins_data:watch_scope_principals");
 		expect(instance.query.mock.calls[0]?.[1]).toEqual({ scopeId: "dm-3" });
 
-		// Null already means "not yours to see", so a broken read answers the same thing rather than
-		// an empty share list, which would read as "this private channel has nobody in it".
+		instance.query.mockResolvedValueOnce(null);
+		await expect(client.scopes.listPrincipals({ scopeId: "dm-3" })).resolves.toEqual({ _yay: null });
+
 		instance.query.mockRejectedValueOnce(new Error("network"));
-		await expect(client.scopes.listPrincipals({ scopeId: "dm-3" })).resolves.toBeNull();
+		await expect(client.scopes.listPrincipals({ scopeId: "dm-3" })).resolves.toEqual({
+			_nay: { name: "unavailable", message: "Failed to read who can access this" },
+		});
+
+		instance.query.mockResolvedValueOnce([{ userId: "user_2", level: "owner" }]);
+		await expect(client.scopes.listPrincipals({ scopeId: "dm-3" })).resolves.toEqual({
+			_nay: { name: "unavailable", message: "Failed to read who can access this" },
+		});
+		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
+		expect(declaration).toContain(
+			"listPrincipals(opts: { scopeId: string }): Promise<BonoboUiScopePrincipalListResult>",
+		);
+		expect(declaration).toContain('| { _nay: { name: "unavailable"; message: string } };');
 		expect(errorSpy).toHaveBeenCalled();
 	});
 
@@ -2319,16 +2375,55 @@ describe("scopes", () => {
 		// The first delivery is the whole list, and a later one replaces it. That is what makes a
 		// private channel appear in the page the moment somebody adds this member to it.
 		registration.callback([
-			{ scopeId: "p/1", keyPrefix: "p/1", collections: ["channels", "messages"], level: "manage" },
+			{
+				scopeId: "p/1",
+				keyPrefix: "p/1",
+				collections: ["channels", "messages"],
+				appendActivity: [{ collection: "messages", at: 10, createdByUserId: "user_1", sequence: 1 }],
+				level: "manage",
+				membershipRevision: 1,
+			},
 		]);
 		registration.callback([
-			{ scopeId: "p/1", keyPrefix: "p/1", collections: ["channels", "messages"], level: "manage" },
-			{ scopeId: "p/2", keyPrefix: "p/2", collections: ["channels"], level: "member" },
+			{
+				scopeId: "p/1",
+				keyPrefix: "p/1",
+				collections: ["channels", "messages"],
+				appendActivity: [{ collection: "messages", at: 20, createdByUserId: "user_1", sequence: 2 }],
+				level: "manage",
+				membershipRevision: 2,
+			},
+			{
+				scopeId: "p/2",
+				keyPrefix: "p/2",
+				collections: ["channels"],
+				appendActivity: [],
+				level: "member",
+				membershipRevision: 1,
+			},
 		]);
 		expect(onUpdate).toHaveBeenNthCalledWith(1, [
-			{ scopeId: "p/1", keyPrefix: "p/1", collections: ["channels", "messages"], level: "manage" },
+			{
+				scopeId: "p/1",
+				keyPrefix: "p/1",
+				collections: ["channels", "messages"],
+				appendActivity: [{ collection: "messages", at: 10, createdByUserId: "user_1", sequence: 1 }],
+				level: "manage",
+				membershipRevision: 1,
+			},
 		]);
 		expect(onUpdate.mock.calls[1]?.[0]).toHaveLength(2);
+		expect(onUpdate.mock.calls[1]?.[0]?.[0]?.appendActivity).toEqual([
+			{ collection: "messages", at: 20, createdByUserId: "user_1", sequence: 2 },
+		]);
+
+		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
+		const scopeInterface = declaration.match(/export interface BonoboUiScope \{[^]*?\n\}/)?.[0] ?? "";
+		expect(scopeInterface).toContain(
+			"appendActivity: Array<{ collection: string; at: number; createdByUserId: string; sequence: number }>",
+		);
+		expect(scopeInterface).toContain("`sequence` increases for each new accepted append in that collection");
+		expect(scopeInterface).toContain("This does not change `membershipRevision`");
 
 		// Losing the frame's access kills this subscription the same way it kills a document watch.
 		registration.callback(null);

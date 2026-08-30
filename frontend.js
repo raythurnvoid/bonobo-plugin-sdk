@@ -109,6 +109,45 @@ const DEATH_SESSION_EXPIRED = { reason: "session_expired", message: "This plugin
 const DEATH_UNAVAILABLE = { reason: "unavailable", message: "The plugin data connection is unavailable" };
 
 /**
+ * Reads the exact principal-query shape before plugin code can use it. The Convex query is an
+ * outside boundary even though its generated TypeScript type is known to the host app.
+ *
+ * @param {unknown} value
+ * @returns {import("bonobo-plugin-sdk/frontend").BonoboUiScopePrincipal[] | null | undefined}
+ */
+function read_scope_principals(value) {
+	if (value === null) {
+		return null;
+	}
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+
+	/** @type {import("bonobo-plugin-sdk/frontend").BonoboUiScopePrincipal[]} */
+	const principals = [];
+	for (const entry of value) {
+		if (typeof entry !== "object" || entry === null) {
+			return undefined;
+		}
+		const principal = /** @type {Record<string, unknown>} */ (entry);
+		if (
+			typeof principal.userId !== "string" ||
+			principal.userId === "" ||
+			(principal.level !== "member" && principal.level !== "manage")
+		) {
+			return undefined;
+		}
+		principals.push({ userId: principal.userId, level: principal.level });
+	}
+	return principals;
+}
+
+/** @returns {import("bonobo-plugin-sdk/frontend").BonoboUiScopePrincipalListResult} */
+function scope_principals_unavailable() {
+	return { _nay: { name: "unavailable", message: "Failed to read who can access this" } };
+}
+
+/**
  * Validates the `bonobo:init` context union: `kind: "page"` or `kind: "file_view"`.
  *
  * @param {unknown} value
@@ -782,7 +821,7 @@ function create_documents_window(deps) {
  *   resolve_member_display: (userIds: string[]) => Promise<{ members: Record<string, string | null> } | null>,
  *   list_members: (limit: number, cursor: string | null) => Promise<{ members: import("bonobo-plugin-sdk/frontend").BonoboUiMember[], cursor: string | null } | { refusal: string } | null>,
  *   run_manage_scope: (action: Record<string, unknown>) => Promise<unknown>,
- *   list_scope_principals: (scopeId: string) => Promise<import("bonobo-plugin-sdk/frontend").BonoboUiScopePrincipal[] | null>,
+ *   list_scope_principals: (scopeId: string) => Promise<unknown>,
  *   start_my_scopes_watch: (onResult: (outcome: { value: import("bonobo-plugin-sdk/frontend").BonoboUiScope[] | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
  *   session_expired: () => boolean,
  * }} deps
@@ -1111,7 +1150,7 @@ function bonobo_ui_create_data_api(deps) {
 	/**
 	 * Every write resolves with the store door's Result as-is, `_yay` and `_nay` alike. A thrown
 	 * call (network loss, a payload the Convex client cannot serialize) resolves the stable
-	 * generic `_nay`; the real cause stays in the log.
+	 * `unavailable` `_nay`; the real cause stays in the log.
 	 *
 	 * @param {"append" | "put" | "remove" | "putOwned" | "removeOwned"} op
 	 * @param {Record<string, unknown>} fields
@@ -1121,7 +1160,7 @@ function bonobo_ui_create_data_api(deps) {
 			.then(() => deps.run_user_write(op, fields))
 			.catch((error) => {
 				console.error("[bonobo-plugin-sdk] Plugin data write failed:", error);
-				return { _nay: { message: "Failed to write plugin data" } };
+				return { _nay: { name: "unavailable", message: "Failed to write plugin data" } };
 			});
 	}
 
@@ -1143,7 +1182,10 @@ function bonobo_ui_create_data_api(deps) {
 			// Checked here so a bad limit costs no round trip, the same way `data.watch` refuses one.
 			if (!Number.isInteger(opts.limit) || opts.limit < 1 || opts.limit > MEMBERS_MAX_LIST_PAGE_SIZE) {
 				return Promise.resolve({
-					_nay: { name: "invalid", message: `Member list limits must be integers from 1 to ${MEMBERS_MAX_LIST_PAGE_SIZE}` },
+					_nay: {
+						name: "invalid",
+						message: `Member list limits must be integers from 1 to ${MEMBERS_MAX_LIST_PAGE_SIZE}`,
+					},
 				});
 			}
 
@@ -1154,7 +1196,9 @@ function bonobo_ui_create_data_api(deps) {
 					// `members: []` tells the member this workspace has nobody in it, and the one refusal
 					// an admin can actually fix would never be seen.
 					if (result === null) {
-						return { _nay: { name: DEATH_DENIED.reason, message: "This plugin no longer has access to this workspace" } };
+						return {
+							_nay: { name: DEATH_DENIED.reason, message: "This plugin no longer has access to this workspace" },
+						};
 					}
 					if ("refusal" in result) {
 						return {
@@ -1179,8 +1223,8 @@ function bonobo_ui_create_data_api(deps) {
 	};
 
 	/**
-	 * Runs one scope change. Same resolve-never-reject contract as a data write, and the same
-	 * stable fallback message, because the page shows both in the same dialogs.
+	 * Runs one scope change. Same resolve-never-reject contract as a data write, with a named
+	 * unavailable fallback so the page can tell an uncertain call from a backend refusal.
 	 *
 	 * @param {Record<string, unknown>} action
 	 * @returns {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiScopeResult>}
@@ -1191,7 +1235,7 @@ function bonobo_ui_create_data_api(deps) {
 			.then((result) => /** @type {import("bonobo-plugin-sdk/frontend").BonoboUiScopeResult} */ (result))
 			.catch((error) => {
 				console.error("[bonobo-plugin-sdk] Plugin scope change failed:", error);
-				return { _nay: { message: "Failed to change who can read this" } };
+				return { _nay: { name: "unavailable", message: "Failed to change who can read this" } };
 			});
 	}
 
@@ -1205,23 +1249,48 @@ function bonobo_ui_create_data_api(deps) {
 				keyPrefix: opts.keyPrefix,
 			});
 		},
+		createWithDocument(opts) {
+			return run_scope({
+				kind: "create_with_document",
+				scopeId: opts.scopeId,
+				collections: opts.collections,
+				keyPrefix: opts.keyPrefix,
+				principals: opts.principals,
+				document: opts.document,
+			});
+		},
 		setPrincipal(opts) {
 			return run_scope({ kind: "set_principal", scopeId: opts.scopeId, userId: opts.userId, level: opts.level });
 		},
 		removePrincipal(opts) {
-			return run_scope({ kind: "remove_principal", scopeId: opts.scopeId, userId: opts.userId });
+			return run_scope({
+				kind: "remove_principal",
+				scopeId: opts.scopeId,
+				userId: opts.userId,
+				...(opts.expectedPrincipalCount === undefined ? {} : { expectedPrincipalCount: opts.expectedPrincipalCount }),
+			});
 		},
 		delete(opts) {
-			return run_scope({ kind: "delete", scopeId: opts.scopeId });
+			return run_scope({
+				kind: "delete",
+				scopeId: opts.scopeId,
+				...(opts.expectedPrincipalCount === undefined ? {} : { expectedPrincipalCount: opts.expectedPrincipalCount }),
+			});
 		},
 		listPrincipals(opts) {
 			return Promise.resolve()
 				.then(() => deps.list_scope_principals(opts.scopeId))
+				.then((value) => {
+					const principals = read_scope_principals(value);
+					if (principals === undefined) {
+						console.error("[bonobo-plugin-sdk] Plugin scope principals response was invalid");
+						return scope_principals_unavailable();
+					}
+					return { _yay: principals };
+				})
 				.catch((error) => {
-					// Null already means "this scope is not yours to see", so a failed read answers the
-					// same thing rather than inventing an empty share list.
 					console.error("[bonobo-plugin-sdk] Failed to read plugin scope principals:", error);
-					return null;
+					return scope_principals_unavailable();
 				});
 		},
 		watchMine(onUpdate) {
@@ -1426,10 +1495,7 @@ export async function bonobo_ui_connect() {
 			}, REFRESH_DEADLINE_MS);
 			pending_refreshes.set(requestId, { resolve, reject, timeout });
 			try {
-				window.parent.postMessage(
-					{ type: "bonobo:token-refresh-request", bridgeNonce, requestId },
-					parentOrigin,
-				);
+				window.parent.postMessage({ type: "bonobo:token-refresh-request", bridgeNonce, requestId }, parentOrigin);
 			} catch (error) {
 				clearTimeout(timeout);
 				pending_refreshes.delete(requestId);
