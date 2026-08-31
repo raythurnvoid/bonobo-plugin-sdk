@@ -12,30 +12,34 @@ Backend run (`fetch(request, env, ctx)`):
 - `outbound.fetch` — native `fetch` to third-party HTTPS origins listed in the manifest's `outboundOrigins`.
 - `plugin.data.read` — read the plugin's own document store.
 - `plugin.data.write` — create, change, and delete documents in that store. Declaring it also requires `plugin.data.read`.
+- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`, so a backend run can call `/api/v1/files/list` and `/api/v1/files/read` with the acting member's visibility: a file or folder that member cannot see answers `404` or an empty page. `files/download-urls` stays bound to the triggering upload.
+- `workspace.files.own-write` — an invoke run (below) may create folders the plugin owns through `/api/v1/files/plugin-folders/ensure` and write Markdown inside them with `files/write`. Every node it creates carries the plugin's ownership stamp, and the write doors refuse any path whose existing chain does not carry that stamp, so this opens no write over a member's own files. Members cannot share or lock a stamped node. Declaring it also requires `workspace.files.write`.
+- `workspace.files.own-access` — the run may lock its own stamped files and folders read-only, release those locks again, or bind a stamped node's readers to one of the plugin's private data scopes, through `/api/v1/files/plugin-access/set`. It only ever applies to nodes carrying this plugin's stamp. Declaring it also requires `workspace.files.own-write`.
 
 Plugin page and file view (the sandboxed iframe):
 
-- `workspace.files.read` — read access to workspace files: the frame's UI token carries the `files:list`, `files:read`, and `files:download` scopes. It never applies to backend runs.
+- `workspace.files.read` — read access to workspace files: the frame's UI token carries the `files:list`, `files:read`, and `files:download` scopes. The same capability also reaches backend runs (see the backend list above).
 - `plugin.data.read` — read the plugin's own document store; the UI token carries `plugin_data:read`.
 - `plugin.data.user-write` — the plugin's UI pages and file views may create, change, and delete documents in that store as the acting member. The frame's UI token never carries a write scope: the write runs through the app's own member-attributed mutations on the frame's own Convex client (see [Plugin data on the frame's own Convex client](#plugin-data-on-the-frames-own-convex-client)). Declaring it also requires `plugin.data.read`.
 - `ui.outbound.fetch` — the plugin's UI pages and file views may call the manifest's `uiOutboundOrigins`. It is enforced as `connect-src` in the frame's CSP, so it is the browser that refuses anything else. This capability and `uiOutboundOrigins` require each other: neither may be declared alone. Keep it separate from `outbound.fetch` — that one is the backend, this one is a frame holding a member's session token.
 - `workspace.members.read` — the plugin's UI pages and file views may list every member of the workspace, as `{ userId, displayName }` rows through `client.members.list(...)`. Email is never returned. Without it a frame can still resolve names for ids it already holds (`client.members.resolve(...)`), which enumerates nobody. Every member reads the roster under one rule, including a member who signed in anonymously.
+- `plugin.backend.invoke` — the plugin's UI pages and file views may run the plugin's backend on demand through `client.backend.invoke(...)` (`POST /api/v1/plugin-backend/invoke` on the UI token). The manifest must declare `backend.endpoints`; the capability and the endpoint list require each other. It is its own consent because "a member's click runs publisher code that can write" is different from "an upload runs it".
 
-Service grant (Council only today):
+Service grant (publisher-registered services):
 
-The current host exchange is bound to Council. Other plugins cannot obtain a service grant yet.
+The host exchange works for any plugin whose publisher registered a service secret with the host; the publisher settings screen issues the secret once and can rotate it. A plugin with no registration cannot obtain a service grant. Council is the only registered service today.
 
-- `plugin.service.connect` — lets a Council UI token from a page or a file view participate in the exchange, but grants no API scope itself. The exchange reads only the session's installation and member, so both frame kinds work the same. The Council service must also authenticate with its configured service secret. Declaring it requires `plugin.data.read` or `workspace.files.write`, because a grant carrying no scope buys the service nothing.
-- `plugin.data.read` — an eligible Council grant may read the plugin's own document store.
-- `plugin.data.write` — an eligible Council grant may write the plugin's document store. A frame's UI token never receives this scope, whatever the installation accepted: a UI session can belong to an anonymous identity and is the surface an XSS reaches first, so a write from there would become injected input the backend later acts on with its secrets.
-- `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant, capped by an exact destination path prefix. The interactive exchange still never mints this scope; the service gets it by sealing (below). Only the `/api/v1/files/service-uploads/*` routes accept it — the generic `/api/v1/files/*` routes still refuse service grants.
+- `plugin.service.connect` — lets the plugin's UI token from a page or a file view participate in the exchange, but grants no API scope itself. The exchange reads only the session's installation and member, so both frame kinds work the same. The service must also authenticate with the publisher's registered service secret. Declaring it requires `plugin.data.read` or `workspace.files.write`, because a grant carrying no scope buys the service nothing.
+- `plugin.data.read` — an eligible service grant may read the plugin's own document store.
+- `plugin.data.write` — an eligible service grant may write the plugin's document store. A frame's UI token never receives this scope, whatever the installation accepted: a UI session can belong to an anonymous identity and is the surface an XSS reaches first, so a write from there would become injected input the backend later acts on with its secrets.
+- `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant, capped by an exact destination path prefix. The interactive exchange still never mints this scope; the service gets it by sealing (below). A sealed grant may call the `/api/v1/files/service-uploads/*` routes, `/api/v1/files/write` (Markdown inside the sealed destination; a create stamps the file as service-written, and a fill requires that stamp from the same plugin), and `/api/v1/files/plugin-archive`. Every other generic `/api/v1/files/*` route still refuses service grants.
 - `workspace.files.create-read-only` — lets a sealed service upload ask for a direct read-only lock on the file it creates. It cannot lock existing member files. Declaring it also requires `workspace.files.write`.
 
-### Grant lifecycle and service upload routes (Council service only)
+### Grant lifecycle and service upload routes
 
-An interactive grant comes from `POST /api/internal/plugins/service-grants/exchange` (UI token + service secret) and carries `plugin_data:read` and `plugin_data:write` for one working day, renewable. When a meeting closes, the service seals it:
+An interactive grant comes from `POST /api/internal/plugins/service-grants/exchange` (UI token + registered service secret) and carries the publisher's registered scopes minus `files:write` — for Council's registration, `plugin_data:read` and `plugin_data:write` — for one working day, renewable. When the service's processing work begins (for Council: when a meeting closes), the service seals it:
 
-- `POST /api/internal/plugins/service-grants/seal-processing` — service secret + live interactive `psg_` bearer, body `{ destinationPathPrefix }` (a normalized absolute path of canonical lowercase folder names, not `/`). Mints a NEW processing-phase grant for the same installation and member with scopes `["plugin_data:read", "plugin_data:write", "files:write"]`, bound to exactly that prefix, expiring six days from the seal. Renewal rotates a processing token but never moves that deadline. A processing grant cannot seal again, so the window cannot roll forever. Requires all five Council capabilities and refuses if any is missing rather than minting a narrower grant.
+- `POST /api/internal/plugins/service-grants/seal-processing` — service secret + live interactive `psg_` bearer, body `{ destinationPathPrefix }` (a normalized absolute path of canonical lowercase folder names, not `/`). Mints a NEW processing-phase grant for the same installation and member with exactly the registered scopes (for Council: `["plugin_data:read", "plugin_data:write", "files:write"]`), bound to exactly that prefix, expiring six days from the seal. Renewal rotates a processing token but never moves that deadline. A processing grant cannot seal again, so the window cannot roll forever. Requires `plugin.service.connect` plus the workspace capability gating each registered scope, and refuses if any is missing rather than minting a narrower grant. `workspace.files.create-read-only` is deliberately not required here; `create-target` still checks it on every call.
 
 The sealed grant then drives the upload pipeline — plain `Authorization: Bearer <psg_...>` calls (no service secret header), all POST, all requiring the `files:write` scope and the `processing` phase:
 
@@ -96,18 +100,23 @@ These are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authoriz
 | Route                              | Body                                                                                                                                                                                                       | Response                                                                                                                                          |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /api/v1/files/download-urls` | `BonoboFilesDownloadUrlsRequest` — `{ fileNodeIds, expiresInSeconds? }` (1–900; defaults to 900; the granted TTL is clamped below the remaining run-token lifetime with a one-second signing margin)       | `BonoboFilesDownloadUrlsResponse` — `{ items, errors, truncated }`; each item contains `{ fileNodeId, url, expiresAt }` (`expiresAt` in epoch ms) |
-| `POST /api/v1/files/write`         | `BonoboFilesWriteRequest` — `{ path, content, overwrite?: "replace" \| "fail" }` (`overwrite` defaults to `"replace"`)                                                                                     | `BonoboFilesWriteResponse` — `{ path, nodeId, contentType }`                                                                                      |
+| `POST /api/v1/files/write`         | `BonoboFilesWriteRequest` — `{ path, content, overwrite?: "replace" \| "fail", access?: { readOnly?: boolean } }` (`overwrite` defaults to `"replace"`; `access` is refused for API-key callers)           | `BonoboFilesWriteResponse` — `{ path, nodeId, contentType }`                                                                                      |
 | `POST /api/v1/files/touch`         | `BonoboFilesTouchRequest` — `{ paths }` (at most 8 paths per call; the call is idempotent)                                                                                                                 | `BonoboFilesTouchResponse` — `{ files }`; each entry is `{ path, nodeId, created }`, and `created` is `false` when the file already existed       |
 | `POST /api/v1/activities/start`    | `BonoboActivitiesStartRequest` — `{ title, timeoutMs }` (`title` up to 120 characters after trimming, or `""` to let the host compose one; `timeoutMs` at most `300000`, and a larger value answers `400`) | `BonoboActivitiesStartResponse` — `{ activityId }`; a second call in the same run answers `409`                                                   |
 
-Plugin authority is scoped to the triggering upload:
+Where a run may write depends on how it started:
 
-- `files/download-urls` accepts only `[event.source.fileNodeId]` for backend runs and signs the run's original asset.
-- `files/write` is Markdown-only and writes siblings of the upload: `path` must be an absolute `.md` path whose parent folder equals `event.source.path`'s parent folder.
-- `files/touch` creates those same siblings empty, so users see where the outputs will land before the run fills them. Every path follows the `files/write` rule above, and a later `files/write` fills the node it already made.
+- An upload-triggered run is scoped to the triggering upload:
+  - `files/download-urls` accepts only `[event.source.fileNodeId]` and signs the run's original asset.
+  - `files/write` is Markdown-only and writes siblings of the upload: `path` must be an absolute `.md` path whose parent folder equals `event.source.path`'s parent folder.
+  - `files/touch` creates those same siblings empty, so users see where the outputs will land before the run fills them. Every path follows the `files/write` rule above, and a later `files/write` fills the node it already made.
+- An invoke run (`event: "ui.invoke.requested"`, started by a frame through `client.backend.invoke`) has no source file. With `workspace.files.own-write`, its write authority is the plugin's own folder area instead: create or reuse a folder with `POST /api/v1/files/plugin-folders/ensure` (body `{ path, access?: { readOnly?: boolean, readScopeId?: string | null } }`, response `{ nodeId, path, created }`; the access fields need `workspace.files.own-access`), then write Markdown inside it with `files/write`. Every node it creates carries the plugin's ownership stamp, and a write whose existing folder chain does not carry the stamp answers `403`.
+- With `workspace.files.read`, any backend run may also call `POST /api/v1/files/list` and `POST /api/v1/files/read` (the same request and response shapes the developer API uses), reading with the acting member's visibility.
+- With `workspace.files.own-access`, a run may change access on its own stamped nodes through `POST /api/v1/files/plugin-access/set` (body `{ path, access: { readOnly?: boolean, readScopeId?: string | null } }` — `access` must set at least one field; response `{ nodeId }`): `readOnly: true` writes a plugin-named read-only lock members cannot remove, `readOnly: false` releases it, and `readScopeId` binds or releases the node's reader list against one of the plugin's private data scopes (the host keeps the file's readers equal to the scope members).
+- `POST /api/v1/files/plugin-archive` (body `{ path }`, response `{ archivedNodes }`) archives one of the plugin's own stamped folders or files with its subtree, releasing the plugin's own lock in the same call. A sealed service grant may call it too, for paths inside its destination.
 - `activities/start` is optional: a run that never calls it stays out of the workspace activity feed. After a run opts in, the host tracks the rest — the files the run touches or writes become the activity's targets, and the run's own outcome closes it.
 
-Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope or a write path outside the upload's parent folder (the sibling constraint), `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` `overwrite: "fail"` conflict, `429` run call quota or rate limit, `500` curated storage failure. A run succeeds only if it writes at least one Markdown output.
+Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope or a write path outside the run's authority (the sibling constraint for upload runs, the stamped area for invoke runs), `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` `overwrite: "fail"` conflict, `429` run call quota or rate limit, `500` curated storage failure. An upload-triggered run succeeds only if it writes at least one Markdown output; an invoke run succeeds on a clean exit, because its result is its own response body.
 
 ## Typed worker example
 
@@ -256,6 +265,28 @@ bucket. One inaccessible file appears in `errors` without discarding the other s
 Duplicate file IDs are rejected with `400` before they consume route capacity or start file work.
 
 Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentTypePrefixes`, one request uses one bounded query. `scanLimit` sets its source-doc budget; the server defaults and caps it at 10,000 docs. The query does not set a byte-read cap. A page may come back short or even empty while `isDone` is still `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. Scan with `limit: 100`, `scanLimit: 10000`, and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor.
+
+### Backend invoke (`client.backend.invoke`)
+
+With the `plugin.backend.invoke` capability, a frame may run the plugin's backend on demand. The manifest must declare the endpoints (at most 8; each `path` starts with `/`, is at most 256 printable ASCII characters, and may not use the reserved `/__bonobo_senate` prefix):
+
+```jsonc
+"backend": {
+	"endpoints": [
+		{ "id": "refresh", "path": "/refresh", "serialization": "installation" }
+	]
+}
+```
+
+`client.backend.invoke({ endpoint, input?, serializationKey? })` names the endpoint by its `id`, POSTs `/api/v1/plugin-backend/invoke` on the UI token, and resolves — never rejects — with `BonoboUiBackendInvokeResult`: `{ _yay: { runId, pluginStatus, output, outputTruncated } }` or `{ _nay: { name, message, retryAfterMs? } }`. The backend receives a `BonoboInvokeRequestedEvent` at the endpoint's declared path — the normal run envelope plus `invoke: { endpointId, serializationKey, input }` — and answers with its own response body: `pluginStatus` is that response's status, and a non-2xx `pluginStatus` still resolves `_yay`, because the plugin did answer. The whole invoke request body may be at most 32 KiB.
+
+Three rules for a plugin that uses it:
+
+- **Identity.** The backend must read who is acting from the envelope's `actorUserId` only — never from `input`, which any page code can fill with anything.
+- **Idempotency (the honest limit).** The host dedupes nothing: a retried call runs the backend again. The store and the file system are two systems with one transaction each, so a backend that writes both can crash in between and leave one of them written. Put a client request id inside `input` and dedupe in your own store writes, so a retry after an `unavailable` answer cannot apply the same work twice.
+- **Serialization.** An endpoint with `serialization: "installation"` runs one invoke at a time for the whole installation; `"caller-key"` serializes per `serializationKey` (required then, at most 128 characters). A call that finds one already running resolves `_nay` with `name: "busy"` and `retryAfterMs` — wait and retry.
+
+`_nay.name` vocabulary: `busy` (a serialization conflict or the rate limit, with `retryAfterMs`), `denied` (the capability is not accepted or the frame's access is gone), `session_expired` (reload the frame), `invalid` (the request was refused — malformed, or too large for this plugin's configuration), and `unavailable` (a transport failure or a failed backend run — the outcome is unknown, so only retry work that is safe to repeat).
 
 ### Frontend page example
 

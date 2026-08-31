@@ -2227,6 +2227,132 @@ describe("members.list", () => {
 	});
 });
 
+describe("backend.invoke", () => {
+	const SUCCESS_BODY = { runId: "run_1", pluginStatus: 200, output: '{"ok":true}', outputTruncated: false };
+
+	function json_response(body: unknown, status = 200) {
+		return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+	}
+
+	test("posts the endpoint id on the UI token and drops omitted fields instead of sending undefined", async () => {
+		const client = await connect_client();
+		const fetchMock = vi.fn().mockResolvedValue(json_response(SUCCESS_BODY));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(
+			client.backend.invoke({ endpoint: "refresh", input: { requestId: "r1" }, serializationKey: "user_1" }),
+		).resolves.toEqual({ _yay: SUCCESS_BODY });
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchMock.mock.calls[0] as [string, { method: string; headers: Headers; body: string }];
+		expect(url).toBe("https://api.test/api/v1/plugin-backend/invoke");
+		expect(init.method).toBe("POST");
+		expect(init.headers.get("Authorization")).toBe("Bearer plu_1");
+		expect(init.headers.get("Content-Type")).toBe("application/json");
+		expect(JSON.parse(init.body)).toEqual({
+			endpoint: "refresh",
+			input: { requestId: "r1" },
+			serializationKey: "user_1",
+		});
+
+		// The route's validator is strict, so an omitted input or serializationKey must stay out of
+		// the body entirely rather than travel as a literal null.
+		await client.backend.invoke({ endpoint: "refresh" });
+		const secondBody = JSON.parse((fetchMock.mock.calls[1] as [string, { body: string }])[1].body) as unknown;
+		expect(secondBody).toEqual({ endpoint: "refresh" });
+	});
+
+	test("relays the backend's own answer, so a non-2xx pluginStatus still resolves _yay", async () => {
+		const client = await connect_client();
+		const body = { runId: "run_2", pluginStatus: 422, output: "no", outputTruncated: true };
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json_response(body)));
+
+		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({ _yay: body });
+	});
+
+	test("a malformed success body resolves unavailable instead of handing the page a half-checked object", async () => {
+		const client = await connect_client();
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json_response({ runId: 1 })));
+
+		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
+			_nay: { name: "unavailable", message: "Failed to run the plugin backend" },
+		});
+		expect(errorSpy).toHaveBeenCalled();
+	});
+
+	test("409 and 429 both map to busy and carry the server's retryAfterMs through", async () => {
+		const client = await connect_client();
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(json_response({ message: "This endpoint is already running", retryAfterMs: 1500 }, 409))
+			.mockResolvedValueOnce(json_response({ message: "Rate limit exceeded", retryAfterMs: 30_000 }, 429))
+			.mockResolvedValueOnce(new Response("locked", { status: 409 }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
+			_nay: { name: "busy", message: "This endpoint is already running", retryAfterMs: 1500 },
+		});
+		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
+			_nay: { name: "busy", message: "Rate limit exceeded", retryAfterMs: 30_000 },
+		});
+		// A refusal body that is not JSON still maps to busy; retryAfterMs is simply absent.
+		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
+			_nay: { name: "busy", message: "The plugin backend is busy" },
+		});
+	});
+
+	test("a live-session refusal is denied, a refused request is invalid, and a failed backend is unavailable", async () => {
+		const client = await connect_client();
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce(json_response({ message: "Permission denied" }, 403))
+			.mockResolvedValueOnce(json_response({ message: "Endpoint not found" }, 404))
+			.mockResolvedValueOnce(json_response({ message: "Plugin backend failed", runId: "run_9" }, 502));
+		vi.stubGlobal("fetch", fetchMock);
+
+		// The token is minutes from expiry, so the SDK's session clock says this 403 is a real denial.
+		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
+			_nay: { name: "denied", message: "Permission denied" },
+		});
+		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
+			_nay: { name: "invalid", message: "Endpoint not found" },
+		});
+		// A 5xx means the outcome is unknown: the run may have half-happened, so the page only
+		// retries work it made safe to repeat.
+		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
+			_nay: { name: "unavailable", message: "Failed to run the plugin backend" },
+		});
+		expect(errorSpy).toHaveBeenCalled();
+	});
+
+	test("pins the invoke declaration and its result contract in the declaration text", async () => {
+		// Same reason as the fetchJson pin: `pnpm run typecheck` passes `--skipLibCheck`, which
+		// skips every `.d.ts`, so the declaration text is the only thing a test can hold.
+		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
+		expect(declaration).toContain(
+			"invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboUiBackendInvokeResult>;",
+		);
+		const resultType = declaration.match(/export type BonoboUiBackendInvokeResult =[^]*?\};/)?.[0] ?? "";
+		expect(resultType).toContain(
+			"{ _yay: { runId: string; pluginStatus: number; output: string; outputTruncated: boolean } }",
+		);
+		expect(resultType).toContain("{ _nay: { name: string; message: string; retryAfterMs?: number } }");
+
+		// `name` is a plain string in the type, so the doc block is the only place a plugin author
+		// learns the vocabulary — the member-list pin's rule, applied here. Anchor on the doc's own
+		// first sentence so the scan cannot drift into another type's doc block.
+		const resultDoc = declaration.match(/The result of one backend invoke[^]*?\*\//)?.[0] ?? "";
+		for (const name of ["busy", "denied", "session_expired", "invalid", "unavailable"]) {
+			expect(resultDoc).toContain(`\`"${name}"\``);
+		}
+		// The one behavior a page author most likely gets wrong: a non-2xx backend answer is not a
+		// refusal.
+		expect(resultDoc).toContain("still resolves `_yay`");
+	});
+});
+
 describe("scopes", () => {
 	test("every change goes through one mutation, shaped as the action union the door takes", async () => {
 		const client = await connect_client();

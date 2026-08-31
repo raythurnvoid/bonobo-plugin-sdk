@@ -293,6 +293,36 @@ export interface BonoboUiFrontendClient {
 		init?: { method?: string; headers?: Record<string, string>; body?: unknown },
 	): Promise<unknown>;
 	/**
+	 * The plugin's own backend, run on demand. Needs the `plugin.backend.invoke` capability and a
+	 * manifest `backend.endpoints` entry whose `id` matches `endpoint`.
+	 */
+	backend: {
+		/**
+		 * Runs the plugin's backend synchronously through the host's
+		 * `/api/v1/plugin-backend/invoke` route and resolves with the backend's relayed response.
+		 * The call never rejects — every refusal resolves `_nay`
+		 * ({@link BonoboUiBackendInvokeResult}).
+		 *
+		 * The backend's `fetch` receives `POST https://plugin.local<endpoint.path>` with the
+		 * event envelope in the body (`event: "ui.invoke.requested"`); `input` travels inside that
+		 * envelope untouched. The raw request body is capped at 32 KiB. Two rules the page and the
+		 * backend must follow together:
+		 *
+		 * - **Identity**: the backend reads who is acting from the envelope's `actorUserId` ONLY.
+		 *   `input` is page data — any code running in the frame can fill it with anything, so an
+		 *   identity inside it proves nothing.
+		 * - **Idempotency**: the store and the file system are two systems, one transaction each,
+		 *   so a backend writing both can crash in between and the page may retry. Put a client
+		 *   request id inside `input` and make the backend's store writes safe to repeat (for
+		 *   example `clientRequestId` on appends); the invoke door itself dedupes nothing.
+		 *
+		 * At most one invoke run is live per installation (or per `serializationKey` on an
+		 * endpoint declared `serialization: "caller-key"`, where the key is required). A concurrent
+		 * second invoke resolves `_nay` `busy` with `retryAfterMs`; wait and call again.
+		 */
+		invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboUiBackendInvokeResult>;
+	};
+	/**
 	 * The plugin's own document store, on the frame's own Convex client. Reads are reactive
 	 * Convex subscriptions; writes run as the viewing member, attributed to the session's user.
 	 * Every write RESOLVES with a {@link BonoboUiDataWriteResult} — `_nay` resolves too, and a
@@ -667,6 +697,27 @@ export type BonoboUiScopeResult =
 			_yay: { scopeId: string; deleted: boolean; membershipRevision: number };
 	  }
 	| BonoboUiDataWriteNay;
+
+/**
+ * The result of one backend invoke. Like a data write it resolves rather than rejects.
+ *
+ * `_yay` relays the backend's own response: `pluginStatus` is the HTTP status the plugin's `fetch`
+ * answered, `output` its response body text (`outputTruncated` when the host cut it at its byte
+ * cap), and `runId` names the run record for support and debugging. A `pluginStatus` outside 2xx
+ * still resolves `_yay` — the backend answered; what its answer means is the plugin's own
+ * contract.
+ *
+ * `_nay.name` is `"busy"` for the serialization lock and the invoke rate bucket alike (both carry
+ * `retryAfterMs`; wait and call again), `"denied"` when the workspace has not accepted
+ * `plugin.backend.invoke` or the plugin may not act here any more, `"session_expired"` when this
+ * frame's session lapsed, `"invalid"` for a refused request (an unknown endpoint, a missing
+ * `serializationKey`, an over-large body), and `"unavailable"` when the backend failed or the
+ * outcome is unknown — the run may or may not have happened, which is why store writes must be
+ * safe to repeat.
+ */
+export type BonoboUiBackendInvokeResult =
+	| { _yay: { runId: string; pluginStatus: number; output: string; outputTruncated: boolean } }
+	| { _nay: { name: string; message: string; retryAfterMs?: number } };
 
 /**
  * Connects the frame to the embedding host app. It installs one shared `message` listener (for

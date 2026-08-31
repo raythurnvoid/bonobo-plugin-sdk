@@ -148,6 +148,30 @@ function scope_principals_unavailable() {
 }
 
 /**
+ * Reads the invoke route's success body before plugin code can use it. The route is an outside
+ * boundary; `undefined` means the shape was not the contract, which the caller reports as
+ * unavailable rather than handing the page a half-checked object.
+ *
+ * @param {unknown} value
+ * @returns {{ runId: string, pluginStatus: number, output: string, outputTruncated: boolean } | undefined}
+ */
+function read_backend_invoke_success(value) {
+	if (typeof value !== "object" || value === null) {
+		return undefined;
+	}
+	const body = /** @type {Record<string, unknown>} */ (value);
+	if (
+		typeof body.runId !== "string" ||
+		typeof body.pluginStatus !== "number" ||
+		typeof body.output !== "string" ||
+		typeof body.outputTruncated !== "boolean"
+	) {
+		return undefined;
+	}
+	return { runId: body.runId, pluginStatus: body.pluginStatus, output: body.output, outputTruncated: body.outputTruncated };
+}
+
+/**
  * Validates the `bonobo:init` context union: `kind: "page"` or `kind: "file_view"`.
  *
  * @param {unknown} value
@@ -1551,6 +1575,72 @@ export async function bonobo_ui_connect() {
 		return response.json();
 	}
 
+	/** @type {import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["backend"]} */
+	const backend = {
+		invoke(opts) {
+			return fetchJson("/api/v1/plugin-backend/invoke", {
+				body: {
+					endpoint: opts.endpoint,
+					...(opts.input === undefined ? {} : { input: opts.input }),
+					...(opts.serializationKey === undefined ? {} : { serializationKey: opts.serializationKey }),
+				},
+			})
+				.then((response) => {
+					const result = read_backend_invoke_success(response);
+					if (result === undefined) {
+						console.error("[bonobo-plugin-sdk] Plugin backend invoke response was invalid");
+						return { _nay: { name: DEATH_UNAVAILABLE.reason, message: "Failed to run the plugin backend" } };
+					}
+					return { _yay: result };
+				})
+				.catch((error) => {
+					const errorRecord =
+						typeof error === "object" && error !== null ? /** @type {Record<string, unknown>} */ (error) : null;
+					const status = typeof errorRecord?.status === "number" ? errorRecord.status : null;
+					/** @type {Record<string, unknown> | null} */
+					let refusal = null;
+					if (typeof errorRecord?.responseText === "string") {
+						try {
+							const parsed = JSON.parse(errorRecord.responseText);
+							refusal = typeof parsed === "object" && parsed !== null ? parsed : null;
+						} catch {
+							refusal = null;
+						}
+					}
+					const message = typeof refusal?.message === "string" ? refusal.message : null;
+
+					// 409 is the serialization lock, 429 the member's invoke rate bucket. Both mean
+					// "wait and try again" and both carry retryAfterMs, so the page handles them as one.
+					if (status === 409 || status === 429) {
+						return {
+							_nay: {
+								name: "busy",
+								message: message ?? "The plugin backend is busy",
+								...(typeof refusal?.retryAfterMs === "number" ? { retryAfterMs: refusal.retryAfterMs } : {}),
+							},
+						};
+					}
+					// Same split as a watch death: the server refuses a lapsed session and a revoked
+					// plugin the same way, and the SDK's own session clock is the whole difference.
+					if (status === 401 || status === 403) {
+						if (Date.now() >= tokenExpiresAt) {
+							return { _nay: { name: DEATH_SESSION_EXPIRED.reason, message: DEATH_SESSION_EXPIRED.message } };
+						}
+						return { _nay: { name: DEATH_DENIED.reason, message: message ?? "This plugin may not run its backend here" } };
+					}
+					if (status !== null && status < 500 && message !== null) {
+						return { _nay: { name: "invalid", message } };
+					}
+					// A thrown refresh (the session doc is gone) reaches here with no status at all.
+					if (Date.now() >= tokenExpiresAt) {
+						return { _nay: { name: DEATH_SESSION_EXPIRED.reason, message: DEATH_SESSION_EXPIRED.message } };
+					}
+					console.error("[bonobo-plugin-sdk] Plugin backend invoke failed:", error);
+					return { _nay: { name: DEATH_UNAVAILABLE.reason, message: "Failed to run the plugin backend" } };
+				});
+		},
+	};
+
 	/**
 	 * Exchanges the session token for a short-lived plugin-session JWT at the asset origin's
 	 * `/plugins-ui/session-jwt` route. For a published frame this is a same-origin JSON POST with
@@ -1682,6 +1772,7 @@ export async function bonobo_ui_connect() {
 					getToken,
 					refreshToken,
 					fetchJson,
+					backend,
 					data,
 					members,
 					scopes,
