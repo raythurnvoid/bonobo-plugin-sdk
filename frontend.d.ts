@@ -745,9 +745,10 @@ export interface BonoboUiFrontendClient {
 	 * cap); no `null` is turned into a named death reason, so a refused read is the door's own
 	 * answer (`null`), a refused write is its `_nay`, and a failed call rejects or reaches `onError`
 	 * with no retry and no `unavailable` fallback. The client's authentication is the plugin-session
-	 * JWT. Only the doors in `api` resolve it to a member; every other function of the app sees no
-	 * user behind it, so a function that needs a member answers `null` or `Unauthenticated`. The SDK
-	 * closes the client on `pagehide`.
+	 * JWT. Only the doors in `api` resolve it to a member. Every other function of the app sees no
+	 * user behind it: a query that needs a member throws `Unauthenticated` (a few, like
+	 * `users:get_anagraphic`, answer `null` instead) and a mutation that needs one returns a `_nay`
+	 * `Unauthenticated`. The SDK closes the client on `pagehide`.
 	 */
 	convex: ConvexClient;
 	/**

@@ -291,8 +291,9 @@ describe("bonobo_ui_connect", () => {
 	});
 
 	test("declares the direct client and the generated door types", async () => {
-		// Read as text for the reason the fetchJson test gives: nothing in this package type-checks
-		// `frontend.d.ts`, so a type-level assertion here would never run.
+		// Read as text for the reason the fetchJson test gives: vitest never type-checks
+		// `frontend.d.ts`, so a type-level assertion here would never run. The typecheck script
+		// compiles `frontend.test-d.ts` against it instead.
 		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
 		expect(declaration).toMatch(/^\tconvex: ConvexClient;$/m);
 		expect(declaration).toMatch(/^\tapi: BonoboConvexApi;$/m);
