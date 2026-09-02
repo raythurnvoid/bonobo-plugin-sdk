@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { bonobo_ui_connect } from "./frontend.js";
 
 const HOST_ORIGIN = "https://host.test";
-const BRIDGE_NONCE = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const NONCE = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const CONVEX_URL = "https://deployment.convex.test";
 
 type FakeOnUpdateEntry = {
@@ -20,6 +20,7 @@ type FakeConvexClientInstance = {
 	address: string;
 	options: Record<string, unknown>;
 	fetchToken: (() => Promise<string | null>) | null;
+	setAuthCalls: number;
 	closed: boolean;
 	onUpdates: FakeOnUpdateEntry[];
 	onUpdate: (
@@ -44,6 +45,7 @@ vi.mock("convex/browser", () => ({
 		address: string;
 		options: Record<string, unknown>;
 		fetchToken: (() => Promise<string | null>) | null = null;
+		setAuthCalls = 0;
 		closed = false;
 		onUpdates: FakeOnUpdateEntry[] = [];
 		mutation = vi.fn();
@@ -55,6 +57,7 @@ vi.mock("convex/browser", () => ({
 		}
 		setAuth(fetchToken: () => Promise<string | null>) {
 			this.fetchToken = fetchToken;
+			this.setAuthCalls += 1;
 		}
 		onUpdate(
 			query: unknown,
@@ -82,11 +85,13 @@ function convex_instance() {
 	return instance;
 }
 
-function set_bridge_fragment(parentOrigin = HOST_ORIGIN, bridgeNonce = BRIDGE_NONCE) {
-	window.history.replaceState(null, "", `/#${new URLSearchParams({ parentOrigin, bridgeNonce }).toString()}`);
+function set_bridge_fragment(parentOrigin = HOST_ORIGIN, nonce = NONCE) {
+	window.history.replaceState(null, "", `/#${new URLSearchParams({ parentOrigin, nonce }).toString()}`);
 }
 
-/** Simulates one host → page postMessage. */
+/**
+ * Simulates one host → page postMessage.
+ */
 function post_from_host(data: unknown, origin: string = HOST_ORIGIN, source: MessageEventSource = window): void {
 	window.dispatchEvent(new MessageEvent("message", { data, origin, source }));
 }
@@ -94,7 +99,7 @@ function post_from_host(data: unknown, origin: string = HOST_ORIGIN, source: Mes
 function make_init(overrides?: Record<string, unknown>) {
 	return {
 		type: "bonobo:init",
-		bridgeNonce: BRIDGE_NONCE,
+		nonce: NONCE,
 		apiOrigin: "https://api.test",
 		convexUrl: CONVEX_URL,
 		token: "plu_1",
@@ -131,7 +136,9 @@ function make_file_view_context(overrides?: Record<string, unknown>) {
 	};
 }
 
-/** happy-dom cannot deliver a real cross-origin parent postMessage, so record it directly. */
+/**
+ * happy-dom cannot deliver a real cross-origin parent postMessage, so record it directly.
+ */
 function spy_on_post_message() {
 	return vi.spyOn(window, "postMessage").mockImplementation(() => {});
 }
@@ -166,7 +173,7 @@ function answer_refresh(
 	}
 	post_from_host({
 		type: "bonobo:token",
-		bridgeNonce: BRIDGE_NONCE,
+		nonce: NONCE,
 		requestId: request.requestId,
 		token,
 		tokenExpiresAt: Date.now() + 600_000,
@@ -175,7 +182,9 @@ function answer_refresh(
 	return request.requestId;
 }
 
-/** One macrotask: flushes the SDK's setTimeout(0) death deliveries and the window flush. */
+/**
+ * One macrotask: flushes the SDK's setTimeout(0) death deliveries and the window flush.
+ */
 async function flush_deliveries() {
 	await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -226,7 +235,7 @@ describe("bonobo_ui_connect", () => {
 		window.history.replaceState(
 			null,
 			"",
-			`/#${new URLSearchParams({ parentOrigin: HOST_ORIGIN, bridgeNonce: BRIDGE_NONCE, extra: "value" })}`,
+			`/#${new URLSearchParams({ parentOrigin: HOST_ORIGIN, nonce: NONCE, extra: "value" })}`,
 		);
 		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge fragment");
 	});
@@ -234,11 +243,11 @@ describe("bonobo_ui_connect", () => {
 	test("sends nonce-bound ready to the exact parent and accepts only its matching init", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_ui_connect();
-		expect(postSpy).toHaveBeenCalledWith({ type: "bonobo:ready", bridgeNonce: BRIDGE_NONCE }, HOST_ORIGIN);
+		expect(postSpy).toHaveBeenCalledWith({ type: "bonobo:ready", nonce: NONCE }, HOST_ORIGIN);
 
 		post_from_host(make_init({ token: "plu_wrong_source" }), HOST_ORIGIN, {} as Window);
 		post_from_host(make_init({ token: "plu_wrong_origin" }), "https://wrong-host.test");
-		post_from_host(make_init({ bridgeNonce: crypto.randomUUID(), token: "plu_bad_nonce" }));
+		post_from_host(make_init({ nonce: crypto.randomUUID(), token: "plu_bad_nonce" }));
 		post_from_host(make_init({ tokenExpiresAt: Number.NaN, token: "plu_bad_shape" }));
 		post_from_host(make_init({ convexUrl: undefined, token: "plu_no_convex_url" }));
 		post_from_host(make_init());
@@ -423,7 +432,7 @@ describe("bonobo_ui_connect", () => {
 		const firstRequest = refresh_requests(postSpy)[0]?.[0] as { requestId: string };
 		post_from_host({
 			type: "bonobo:token-error",
-			bridgeNonce: BRIDGE_NONCE,
+			nonce: NONCE,
 			requestId: firstRequest.requestId,
 			message: "Refresh denied",
 		});
@@ -445,7 +454,7 @@ describe("bonobo_ui_connect", () => {
 		const request = refresh_requests(postSpy)[0]?.[0] as { requestId: string };
 		const reply = {
 			type: "bonobo:token",
-			bridgeNonce: BRIDGE_NONCE,
+			nonce: NONCE,
 			requestId: request.requestId,
 			token: "plu_ignored",
 			tokenExpiresAt: Date.now() + 600_000,
@@ -453,7 +462,7 @@ describe("bonobo_ui_connect", () => {
 
 		post_from_host(reply, HOST_ORIGIN, {} as Window);
 		post_from_host(reply, "https://wrong-host.test");
-		post_from_host({ ...reply, bridgeNonce: "wrong_nonce" });
+		post_from_host({ ...reply, nonce: "wrong_nonce" });
 		let settled = false;
 		void refresh.finally(() => {
 			settled = true;
@@ -561,6 +570,27 @@ describe("convex session jwt auth", () => {
 		});
 	}
 
+	test("pauses for fresh auth after a long tab sleep", async () => {
+		vi.useFakeTimers();
+		const startedAt = Date.now();
+		vi.setSystemTime(startedAt);
+		await connect_client();
+		const instance = convex_instance();
+		expect(instance.setAuthCalls).toBe(1);
+
+		// Moving the wall clock does not run timers. The next one-second poll sees the sleep gap
+		// and calls setAuth before Convex's overdue reconnect and JWT timers can run.
+		vi.setSystemTime(startedAt + 31_000);
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(instance.setAuthCalls).toBe(2);
+
+		window.dispatchEvent(new Event("pagehide"));
+		vi.setSystemTime(startedAt + 62_000);
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(instance.setAuthCalls).toBe(2);
+		expect(instance.closed).toBe(true);
+	});
+
 	test("exchanges the session token same-origin and returns the jwt", async () => {
 		const postSpy = spy_on_post_message();
 		await connect_client();
@@ -667,7 +697,7 @@ describe("convex session jwt auth", () => {
 		const request = refresh_requests(postSpy)[0]?.[0] as { requestId: string };
 		post_from_host({
 			type: "bonobo:token-error",
-			bridgeNonce: BRIDGE_NONCE,
+			nonce: NONCE,
 			requestId: request.requestId,
 			message: "Session revoked",
 		});
@@ -2014,25 +2044,24 @@ describe("data writes", () => {
 });
 
 describe("client.theme", () => {
+	// A slice of the app's scales, under the names the host really sends. The full set is 104
+	// entries; the SDK writes whatever arrives, so a few are enough here.
 	const HOST_THEME = {
 		mode: "dark",
 		tokens: {
-			surface: "oklch(0.2 0.01 260)",
-			surfaceRaised: "oklch(0.24 0.01 260)",
-			surfaceOverlay: "oklch(0.28 0.01 260)",
-			surfaceHover: "oklch(0.3 0.01 260)",
-			border: "oklch(0.34 0.01 260)",
-			borderStrong: "oklch(0.44 0.01 260)",
-			text: "oklch(0.96 0.01 260)",
-			textMuted: "oklch(0.74 0.01 260)",
-			textSubtle: "oklch(0.6 0.01 260)",
-			accent: "oklch(0.62 0.16 260)",
-			accentHover: "oklch(0.68 0.16 260)",
-			selection: "oklch(0.4 0.1 260)",
-			success: "oklch(0.66 0.14 150)",
-			danger: "oklch(0.6 0.2 25)",
+			"--color-base-1-01": "oklch(0.14 0.001 85)",
+			"--color-base-1-03": "oklch(0.2 0.004 85)",
+			"--color-fg-12": "oklch(0.95 0.01 81)",
+			"--color-accent-05": "oklch(0.617 0.15 52)",
+			"--color-red-09": "oklch(0.65 0.2 29.2)",
 		},
 	};
+
+	afterEach(() => {
+		// The SDK paints onto the document, so a theme one test applied must not reach the next.
+		document.documentElement.removeAttribute("style");
+		document.documentElement.classList.remove("light", "dark");
+	});
 
 	test("carries the host theme from init and replaces it on every later switch", async () => {
 		spy_on_post_message();
@@ -2043,23 +2072,40 @@ describe("client.theme", () => {
 		// A plugin frame is its own document and inherits none of the host's custom properties, so
 		// the finished values have to arrive over the bridge.
 		expect(client.theme.current()).toEqual(HOST_THEME);
+		// And the SDK paints them onto the document itself, under the app's own names and with the
+		// app's own theme class, so a plugin stylesheet can use `var(--color-base-1-03)` and
+		// `.dark &` exactly as the app does without any plugin code in between.
+		const root = document.documentElement;
+		expect(root.style.getPropertyValue("--color-base-1-01")).toBe("oklch(0.14 0.001 85)");
+		expect(root.style.getPropertyValue("--color-red-09")).toBe("oklch(0.65 0.2 29.2)");
+		expect(root.classList.contains("dark")).toBe(true);
+		expect(root.classList.contains("light")).toBe(false);
 
 		const onChange = vi.fn();
 		const unsubscribe = client.theme.subscribe(onChange);
 		// Subscribing never replays the theme the page already read.
 		expect(onChange).not.toHaveBeenCalled();
 
-		const lightTheme = { mode: "light", tokens: { ...HOST_THEME.tokens, surface: "oklch(0.99 0 0)" } };
-		post_from_host({ type: "bonobo:theme", bridgeNonce: BRIDGE_NONCE, theme: lightTheme });
+		const lightTheme = {
+			mode: "light",
+			tokens: { ...HOST_THEME.tokens, "--color-base-1-01": "oklch(0.99 0 0)" },
+		};
+		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: lightTheme });
 		expect(onChange).toHaveBeenNthCalledWith(1, lightTheme);
 		expect(client.theme.current()).toEqual(lightTheme);
+		// A switch repaints the document the same way, and swaps the class instead of stacking a
+		// second one.
+		expect(root.style.getPropertyValue("--color-base-1-01")).toBe("oklch(0.99 0 0)");
+		expect(root.classList.contains("light")).toBe(true);
+		expect(root.classList.contains("dark")).toBe(false);
 
 		unsubscribe();
-		post_from_host({ type: "bonobo:theme", bridgeNonce: BRIDGE_NONCE, theme: HOST_THEME });
+		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: HOST_THEME });
 		expect(onChange).toHaveBeenCalledTimes(1);
 		// The store keeps following the host after the last subscriber left, so a page that only
 		// reads current() on demand still sees the theme the member is in.
 		expect(client.theme.current()).toEqual(HOST_THEME);
+		expect(root.classList.contains("dark")).toBe(true);
 	});
 
 	test("keeps the last good theme when the host sends something else", async () => {
@@ -2072,20 +2118,29 @@ describe("client.theme", () => {
 
 		// Every field crosses an origin boundary, so a message that fails the check is dropped
 		// whole. Half a theme would paint a page with one wrong colour and no way to notice.
-		post_from_host({ type: "bonobo:theme", bridgeNonce: BRIDGE_NONCE, theme: { mode: "dusk", tokens: {} } });
-		post_from_host({ type: "bonobo:theme", bridgeNonce: BRIDGE_NONCE, theme: { mode: "light", tokens: { text: 7 } } });
+		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: { mode: "dusk", tokens: {} } });
+		post_from_host({
+			type: "bonobo:theme",
+			nonce: NONCE,
+			theme: { mode: "light", tokens: { "--color-fg-12": 7 } },
+		});
 		// The nonce is what proves the message came from this frame's host.
-		post_from_host({ type: "bonobo:theme", bridgeNonce: "other-nonce", theme: { mode: "light", tokens: {} } });
+		post_from_host({ type: "bonobo:theme", nonce: "other-nonce", theme: { mode: "light", tokens: {} } });
 
 		expect(onChange).not.toHaveBeenCalled();
 		expect(client.theme.current()).toEqual(HOST_THEME);
+		// Nothing reached the document either: the dropped light theme left the dark class alone.
+		expect(document.documentElement.classList.contains("dark")).toBe(true);
+		expect(document.documentElement.classList.contains("light")).toBe(false);
 	});
 
 	test("stays null when the host sends no theme at all", async () => {
-		// An older host knows nothing about this channel. The page must be able to tell that apart
-		// from a theme, so it can fall back to its own colours instead of reading empty strings.
+		// The page must be able to tell "no theme" apart from a theme, so it can keep its own colours
+		// instead of reading empty strings. The document is left alone too.
 		const client = await connect_client();
 		expect(client.theme.current()).toBeNull();
+		expect(document.documentElement.getAttribute("style")).toBeNull();
+		expect(document.documentElement.className).toBe("");
 	});
 });
 

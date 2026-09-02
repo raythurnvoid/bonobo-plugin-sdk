@@ -7,7 +7,7 @@ import type { BonoboPublicDoc } from "bonobo-plugin-sdk";
  */
 export interface BonoboUiReadyMessage {
 	type: "bonobo:ready";
-	bridgeNonce: string;
+	nonce: string;
 }
 
 /**
@@ -16,19 +16,45 @@ export interface BonoboUiReadyMessage {
  */
 export interface BonoboUiTokenRefreshRequestMessage {
 	type: "bonobo:token-refresh-request";
-	bridgeNonce: string;
+	nonce: string;
 	requestId: string;
 }
 
-/** `context` of {@link BonoboUiInitMessage} when a plugin page is embedded. */
+/**
+ * `context` of {@link BonoboUiInitMessage} when a plugin page is embedded.
+ */
 export interface BonoboUiPageContext {
+	/**
+	 * Tells the two context shapes apart. A page opens from the sidebar or by URL, not from a file.
+	 */
 	kind: "page";
+	/**
+	 * The plugin's name from its manifest. It is the `<pluginName>` part of the page URL.
+	 */
 	pluginName: string;
-	/** Id of the member viewing this frame. `putOwned`/`removeOwned` stored keys end with it. */
+	/**
+	 * Id of the member viewing this frame. `putOwned`/`removeOwned` stored keys end with it.
+	 */
 	userId: string;
+	/**
+	 * The `id` of the `pages[]` entry from the manifest that this frame was opened as. It is the
+	 * last part of the page URL. A bundle that serves more than one page uses it to tell which one
+	 * it is.
+	 */
 	pageId: string;
+	/**
+	 * The `title` of that `pages[]` entry. The host shows it in the breadcrumb and as the iframe's
+	 * accessible name. Pages usually copy it into `document.title`.
+	 */
 	pageTitle: string;
+	/**
+	 * Id of the organization that owns the workspace. Informational: the session token already
+	 * binds every data call to this tenant.
+	 */
 	organizationId: string;
+	/**
+	 * Id of the workspace the plugin is installed in. Informational, like `organizationId`.
+	 */
 	workspaceId: string;
 }
 
@@ -37,55 +63,81 @@ export interface BonoboUiPageContext {
  * this frame for one stored file whose content type matched the view's declared list.
  */
 export interface BonoboUiFileViewContext {
+	/**
+	 * Tells the two context shapes apart. A file view opens as a tab on one stored file in the
+	 * Files page.
+	 */
 	kind: "file_view";
+	/**
+	 * The plugin's name from its manifest.
+	 */
 	pluginName: string;
-	/** Id of the member viewing this frame. `putOwned`/`removeOwned` stored keys end with it. */
+	/**
+	 * Id of the member viewing this frame. `putOwned`/`removeOwned` stored keys end with it.
+	 */
 	userId: string;
+	/**
+	 * The `id` of the `fileViews[]` entry from the manifest that this frame was opened as. A bundle
+	 * that serves more than one view uses it to tell which one it is.
+	 */
 	fileViewId: string;
+	/**
+	 * The `title` of that `fileViews[]` entry. The host shows it as the tab label and as the
+	 * iframe's accessible name. Views usually combine it with `file.name` for `document.title`.
+	 */
 	fileViewTitle: string;
+	/**
+	 * Id of the organization that owns the workspace. Informational: the session token already
+	 * binds every data call to this tenant.
+	 */
 	organizationId: string;
+	/**
+	 * Id of the workspace the plugin is installed in. Informational, like `organizationId`.
+	 */
 	workspaceId: string;
-	/** The stored file the view was opened for. `contentType` is the matched stored content type. */
+	/**
+	 * The stored file the view was opened for. `contentType` is the matched stored content type.
+	 */
 	file: {
+		/**
+		 * Id of the file node the view was opened for. Pass it to the file routes to read the file.
+		 * The host minted the session for this node and re-checks on every refresh that the member
+		 * can still read it.
+		 */
 		fileNodeId: string;
+		/**
+		 * The file name, for display.
+		 */
 		name: string;
+		/**
+		 * The file's full path inside the workspace, for display.
+		 */
 		path: string;
+		/**
+		 * The stored content type that matched the view's `contentTypes` list, for example
+		 * `video/mp4`.
+		 */
 		contentType: string;
 	};
 }
 
-/** `context` of {@link BonoboUiInitMessage} — discriminated by `kind`. */
+/**
+ * `context` of {@link BonoboUiInitMessage} — discriminated by `kind`.
+ */
 export type BonoboUiContext = BonoboUiPageContext | BonoboUiFileViewContext;
 
 /**
- * One colour role in the host's theme. The host resolves its own palette and sends the finished
- * values, so a plugin gets colours that match the app without knowing anything about the host's
- * custom properties.
- */
-export type BonoboUiThemeToken =
-	| "surface"
-	| "surfaceRaised"
-	| "surfaceOverlay"
-	| "surfaceHover"
-	| "border"
-	| "borderStrong"
-	| "text"
-	| "textMuted"
-	| "textSubtle"
-	| "accent"
-	| "accentHover"
-	| "selection"
-	| "success"
-	| "danger";
-
-/**
  * The host's theme, as the plugin frame sees it. `mode` says which of the two the member is in, so
- * a page can pick its own shadows and image treatments. `tokens` holds one CSS colour value per
- * role, ready to write into a custom property or a style.
+ * a page can pick its own shadows and image treatments. `tokens` holds the app's numbered colour
+ * scales under their real custom property names, `--` prefix included: `--color-base-1-01` …
+ * `--color-base-1-12`, and the same for `base-2`, `base-alt-1`, `base-alt-2`, `fg`, `accent`,
+ * `accent-alt`, `green`, and `red` (`accent` and `accent-alt` have 10 steps, the rest 12). Each
+ * value is a finished CSS colour. The SDK writes every entry onto the frame's root element, so a
+ * stylesheet can use `var(--color-base-1-03)` exactly as the app does.
  */
 export interface BonoboUiTheme {
 	mode: "light" | "dark";
-	tokens: Record<BonoboUiThemeToken, string>;
+	tokens: Record<string, string>;
 }
 
 /**
@@ -97,7 +149,7 @@ export interface BonoboUiTheme {
  */
 export interface BonoboUiInitMessage {
 	type: "bonobo:init";
-	bridgeNonce: string;
+	nonce: string;
 	apiOrigin: string;
 	/**
 	 * The Convex deployment URL. The SDK opens its own Convex client against it and
@@ -109,20 +161,22 @@ export interface BonoboUiInitMessage {
 	tokenExpiresAt: number;
 	context: BonoboUiContext;
 	/**
-	 * The host theme at startup. It is optional because an older host sends none, and then
-	 * `client.theme.current()` stays `null` and the page falls back to its own colours.
+	 * The host theme at startup. A host may send none; then `client.theme.current()` stays `null`,
+	 * nothing is written onto the document, and the page keeps its own colours.
 	 */
 	theme?: BonoboUiTheme;
 }
 
 /**
  * The host's success answer to {@link BonoboUiTokenRefreshRequestMessage} — a fresh session
- * token. The refresh also extends the session's life on the server. `tokenExpiresAt` is Unix
- * epoch milliseconds.
+ * token. While the session lives, the refresh rotates the token on that session and extends its
+ * life on the server. When the session is already gone (the device slept past its expiry), the
+ * token belongs to a new session the host minted for this same frame; the page does nothing
+ * different. `tokenExpiresAt` is Unix epoch milliseconds.
  */
 export interface BonoboUiTokenMessage {
 	type: "bonobo:token";
-	bridgeNonce: string;
+	nonce: string;
 	requestId: string;
 	token: string;
 	tokenExpiresAt: number;
@@ -134,14 +188,16 @@ export interface BonoboUiTokenMessage {
  */
 export interface BonoboUiThemeMessage {
 	type: "bonobo:theme";
-	bridgeNonce: string;
+	nonce: string;
 	theme: BonoboUiTheme;
 }
 
-/** The host's failure answer to {@link BonoboUiTokenRefreshRequestMessage}. */
+/**
+ * The host's failure answer to {@link BonoboUiTokenRefreshRequestMessage}.
+ */
 export interface BonoboUiTokenErrorMessage {
 	type: "bonobo:token-error";
-	bridgeNonce: string;
+	nonce: string;
 	requestId: string;
 	message: string;
 }
@@ -238,7 +294,9 @@ export type BonoboUiMemberListResult =
 	| { _yay: { members: BonoboUiMember[]; cursor: string | null } }
 	| { _nay: { name: string; message: string } };
 
-/** The result of one data write — the union of the per-operation shapes above. */
+/**
+ * The result of one data write — the union of the per-operation shapes above.
+ */
 export type BonoboUiDataWriteResult =
 	| BonoboUiDataAppendResult
 	| BonoboUiDataPutResult
@@ -253,9 +311,13 @@ export type BonoboUiDataWriteResult =
  * rejected on `/api/v1/files/write`.
  */
 export interface BonoboUiFrontendClient {
-	/** The {@link BonoboUiInitMessage} context. Narrow on `context.kind` before using kind-specific fields. */
+	/**
+	 * The {@link BonoboUiInitMessage} context. Narrow on `context.kind` before using kind-specific fields.
+	 */
 	context: BonoboUiContext;
-	/** Origin of the public host API — `fetchJson` prefixes it onto `path`. */
+	/**
+	 * Origin of the public host API — `fetchJson` prefixes it onto `path`.
+	 */
 	apiOrigin: string;
 	/**
 	 * Returns the current session token, refreshing it first when it is expired or within 60
@@ -497,19 +559,26 @@ export interface BonoboUiFrontendClient {
 		}): Promise<BonoboUiDataRemoveResult>;
 	};
 	/**
-	 * The host's theme. Read `current()` once at startup and `subscribe()` for later switches; a
-	 * plugin page never sees the host's theme change on its own.
+	 * The host's theme. The SDK has already applied it to this document: every token sits on
+	 * `document.documentElement.style` under its own name, and the root element carries the same
+	 * `light` or `dark` class the app puts on its root. A stylesheet needs nothing from here. Read
+	 * `current()` and `subscribe()` only for what CSS cannot do, such as picking a canvas colour or
+	 * an image treatment by `mode`; a plugin page never sees the host's theme change on its own.
 	 */
 	theme: {
-		/** The theme the host last sent, or `null` when the host sent none. */
+		/**
+		 * The theme the host last sent, or `null` when the host sent none.
+		 */
 		current(): BonoboUiTheme | null;
 		/**
-		 * Calls `onChange` on every later theme the host sends, and never for the current one.
-		 * Returns the unsubscribe function.
+		 * Calls `onChange` on every later theme the host sends, after the SDK has applied it to the
+		 * document, and never for the current one. Returns the unsubscribe function.
 		 */
 		subscribe(onChange: (theme: BonoboUiTheme) => void): () => void;
 	};
-	/** Member names and the workspace roster, on the frame's own Convex client. */
+	/**
+	 * Member names and the workspace roster, on the frame's own Convex client.
+	 */
 	members: {
 		/**
 		 * Resolves up to 50 user ids to display names. A missing or deleted user maps to `null`.
@@ -649,7 +718,9 @@ export interface BonoboUiFrontendClient {
 	};
 }
 
-/** One member of a scope. `manage` may change who else is in it; `member` may not. */
+/**
+ * One member of a scope. `manage` may change who else is in it; `member` may not.
+ */
 export interface BonoboUiScopePrincipal {
 	userId: string;
 	level: "member" | "manage";
@@ -663,10 +734,14 @@ export type BonoboUiScopePrincipalListResult =
 	| { _yay: BonoboUiScopePrincipal[] | null }
 	| { _nay: { name: "unavailable"; message: string } };
 
-/** One scope this member is in, as {@link BonoboUiFrontendClient.scopes.watchMine} reports it. */
+/**
+ * One scope this member is in, as {@link BonoboUiFrontendClient.scopes.watchMine} reports it.
+ */
 export interface BonoboUiScope {
 	scopeId: string;
-	/** Every key under this prefix belongs to the scope, in each of its `collections`. */
+	/**
+	 * Every key under this prefix belongs to the scope, in each of its `collections`.
+	 */
 	keyPrefix: string;
 	collections: string[];
 	/**
@@ -676,7 +751,9 @@ export interface BonoboUiScope {
 	 */
 	appendActivity: Array<{ collection: string; at: number; createdByUserId: string; sequence: number }>;
 	level: "member" | "manage";
-	/** Increases on every successful change to this scope's members or their levels. */
+	/**
+	 * Increases on every successful change to this scope's members or their levels.
+	 */
 	membershipRevision: number;
 }
 
@@ -726,7 +803,7 @@ export type BonoboUiBackendInvokeResult =
  * `bonobo:init` messages after the first are ignored.
  *
  * The URL fragment must contain one canonical HTTP(S) `parentOrigin` and one UUIDv4
- * `bridgeNonce`. Fragments are not sent in the asset request, cache key, or referrer. Ready
+ * `nonce`. Fragments are not sent in the asset request, cache key, or referrer. Ready
  * messages carry the nonce, target only that parent origin, and retry until the host answers or
  * the document unloads. The host owns the startup deadline and replaces a failed frame; the SDK
  * does not run a competing timeout.
@@ -736,7 +813,9 @@ export type BonoboUiBackendInvokeResult =
  * needs a reload. The client authenticates with short-lived plugin-session JWTs minted by
  * exchanging the session token at the same-origin `/plugins-ui/session-jwt` route. The exchange
  * itself never extends the session; it stays alive because the SDK refreshes the session token
- * through the host, and that host refresh extends it.
+ * through the host, and that host refresh extends it. A one-second wake poll treats a wall-clock
+ * gap of 30 seconds as sleep and calls `setAuth` again, so Convex pauses before the old session's
+ * query set can reconnect while the host re-mints it.
  *
  * Every incoming message requires that origin, `window.parent`, and the fragment nonce;
  * everything else is silently ignored.

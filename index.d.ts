@@ -1,6 +1,8 @@
 import type { ExportedHandler } from "@cloudflare/workers-types";
 
-/** Cloudflare workers types re-exported so plugin repos only need this package for worker typing. */
+/**
+ * Cloudflare workers types re-exported so plugin repos only need this package for worker typing.
+ */
 export type { ExportedHandler, ExecutionContext, Request, Response } from "@cloudflare/workers-types";
 
 /**
@@ -115,29 +117,39 @@ export interface BonoboHost {
 	token: string;
 }
 
-/** The frozen `env.BONOBO` binding every plugin worker receives. */
+/**
+ * The frozen `env.BONOBO` binding every plugin worker receives.
+ */
 export interface BonoboBinding {
 	secrets: BonoboSecrets;
 	host: BonoboHost;
 }
 
-/** The plugin worker `env` — `BONOBO` is the only Bonobo-provided binding. */
+/**
+ * The plugin worker `env` — `BONOBO` is the only Bonobo-provided binding.
+ */
 export interface BonoboEnv {
 	BONOBO: BonoboBinding;
 }
 
-/** The uploaded file that triggered the run (`source` of {@link BonoboUploadCompletedEvent}). */
+/**
+ * The uploaded file that triggered the run (`source` of {@link BonoboUploadCompletedEvent}).
+ */
 export interface BonoboUploadSource {
 	fileNodeId: string;
 	assetId: string;
 	name: string;
-	/** Absolute workspace path of the upload — build sibling output paths from it. */
+	/**
+	 * Absolute workspace path of the upload — build sibling output paths from it.
+	 */
 	path: string;
 	contentType: string | null;
 	size: number;
 }
 
-/** A JSON value parsed from the installation's plugin-owned YAML configuration. */
+/**
+ * A JSON value parsed from the installation's plugin-owned YAML configuration.
+ */
 export type BonoboConfigurationValue =
 	| null
 	| boolean
@@ -158,7 +170,9 @@ export interface BonoboUploadCompletedEvent {
 	organizationId: string;
 	workspaceId: string;
 	actorUserId: string;
-	/** Parsed installation settings, or null when the plugin does not declare configuration. */
+	/**
+	 * Parsed installation settings, or null when the plugin does not declare configuration.
+	 */
 	configuration: BonoboConfigurationValue;
 	source: BonoboUploadSource;
 }
@@ -200,7 +214,9 @@ export interface BonoboInvokeRequestedEvent {
 	 * acting from THIS field only, never from `invoke.input`.
 	 */
 	actorUserId: string;
-	/** Parsed installation settings, or null when the plugin does not declare configuration. */
+	/**
+	 * Parsed installation settings, or null when the plugin does not declare configuration.
+	 */
 	configuration: BonoboConfigurationValue;
 	source: null;
 	invoke: BonoboInvokeRequestedEventInvoke;
@@ -228,13 +244,17 @@ export interface BonoboFilesDownloadUrlItem {
 	expiresAt: number;
 }
 
-/** One file the host could not sign in {@link BonoboFilesDownloadUrlsResponse}. */
+/**
+ * One file the host could not sign in {@link BonoboFilesDownloadUrlsResponse}.
+ */
 export interface BonoboFilesDownloadUrlError {
 	fileNodeId: string;
 	message: string;
 }
 
-/** Response body of `POST {host.apiOrigin}/api/v1/files/download-urls`. */
+/**
+ * Response body of `POST {host.apiOrigin}/api/v1/files/download-urls`.
+ */
 export interface BonoboFilesDownloadUrlsResponse {
 	items: BonoboFilesDownloadUrlItem[];
 	errors: BonoboFilesDownloadUrlError[];
@@ -262,7 +282,9 @@ export interface BonoboFilesWriteRequest {
 	access?: { readOnly?: boolean };
 }
 
-/** Response body of `POST {host.apiOrigin}/api/v1/files/write` — the written Markdown node. */
+/**
+ * Response body of `POST {host.apiOrigin}/api/v1/files/write` — the written Markdown node.
+ */
 export interface BonoboFilesWriteResponse {
 	path: string;
 	nodeId: string;
@@ -281,7 +303,9 @@ export interface BonoboFilesTouchRequest {
 	paths: string[];
 }
 
-/** Response body of `POST {host.apiOrigin}/api/v1/files/touch`. */
+/**
+ * Response body of `POST {host.apiOrigin}/api/v1/files/touch`.
+ */
 export interface BonoboFilesTouchResponse {
 	files: Array<{ path: string; nodeId: string; created: boolean }>;
 }
@@ -307,7 +331,9 @@ export interface BonoboActivitiesStartRequest {
 	timeoutMs: number;
 }
 
-/** Response body of `POST {host.apiOrigin}/api/v1/activities/start`. */
+/**
+ * Response body of `POST {host.apiOrigin}/api/v1/activities/start`.
+ */
 export interface BonoboActivitiesStartResponse {
 	activityId: string;
 }
@@ -339,5 +365,7 @@ export interface BonoboPublicDoc {
 	updatedAt: number;
 }
 
-/** Type of a plugin worker's `export default` — `fetch(request, env, ctx)` with a typed `env.BONOBO`. */
+/**
+ * Type of a plugin worker's `export default` — `fetch(request, env, ctx)` with a typed `env.BONOBO`.
+ */
 export type BonoboPluginHandler = ExportedHandler<BonoboEnv>;

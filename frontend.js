@@ -22,11 +22,17 @@
 import { ConvexClient } from "convex/browser";
 import { anyApi } from "convex/server";
 
-/** `getToken` refreshes when the token is expired or expires within this margin. */
+/**
+ * `getToken` refreshes when the token is expired or expires within this margin.
+ */
 const TOKEN_EXPIRY_MARGIN_MS = 60_000;
 const READY_RETRY_MS = 500;
 const REFRESH_DEADLINE_MS = 10_000;
-const BRIDGE_NONCE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Convex pauses its socket while setAuth fetches. Run this check before its longer-lived timers so
+// a tab that wakes after a long clock gap cannot reconnect with the dead session first.
+const AUTH_WAKE_POLL_MS = 1_000;
+const AUTH_WAKE_GAP_MS = 30_000;
+const NONCE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Client-side copies of the host's plugin-data limits (see the `plugins_data` module in the host
 // app). Only version-independent rules are checked here — lengths, a literal ASCII range, an
@@ -36,41 +42,51 @@ const BRIDGE_NONCE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-
 const DATA_MAX_NAME_LENGTH = 128;
 const DATA_MAX_KEY_PREFIX_LENGTH = 109;
 const DATA_MAX_LIST_PAGE_SIZE = 100;
-// Printable ASCII only (0x21-0x7E, no space) — a literal code range for the same reason.
+/**
+ * Printable ASCII only (0x21-0x7E, no space) — a literal code range for the same reason.
+ */
 const DATA_KEY_PREFIX_REGEX = /^[\x21-\x7e]+$/;
 
-// The host's roster page size. Its own ceiling, not the document one above: the roster is paged
-// because each row costs the server two document reads, and that has nothing to do with documents.
+/**
+ * The host's roster page size. Its own ceiling, not the document one above: the roster is paged
+ * because each row costs the server two document reads, and that has nothing to do with documents.
+ */
 const MEMBERS_MAX_LIST_PAGE_SIZE = 100;
 
-// Max page-visible data watches (plain or window alike). One more answers a null death with
-// reason "capacity". These caps are courtesy bounds the page enforces on itself: the server
-// cannot meter reactive reads per session, so this is what keeps an honest page bounded.
-// 16, not 8: `scopes.watchMine` tells a plugin to open one ranged read per private scope, and
-// under 8 slots that guidance died at two scopes with a channel open (three windows plus a
-// thread watch). Slots and intervals are what shape a page. The server-subscription count
-// below is only a backstop for buggy or hostile pages — 16 slots × 6 intervals = 96, which
-// stays under 100.
+/**
+ * Max page-visible data watches (plain or window alike). One more answers a null death with
+ * reason "capacity". These caps are courtesy bounds the page enforces on itself: the server
+ * cannot meter reactive reads per session, so this is what keeps an honest page bounded.
+ * 16, not 8: `scopes.watchMine` tells a plugin to open one ranged read per private scope, and
+ * under 8 slots that guidance died at two scopes with a channel open (three windows plus a
+ * thread watch). Slots and intervals are what shape a page. The server-subscription count
+ * below is only a backstop for buggy or hostile pages — 16 slots × 6 intervals = 96, which
+ * stays under 100.
+ */
 const MAX_WATCH_SUBSCRIPTIONS = 16;
 
-// Key intervals one document window may hold, committed plus pending. Worst case per window:
-// 6 intervals × 100 docs × 16 KiB values ≈ 9.6 MiB flattened; a realistic chat channel stays
-// around 1 MiB.
+/**
+ * Key intervals one document window may hold, committed plus pending. Worst case per window:
+ * 6 intervals × 100 docs × 16 KiB values ≈ 9.6 MiB flattened; a realistic chat channel stays
+ * around 1 MiB.
+ */
 const MAX_WINDOW_INTERVALS = 6;
 
-// Server subscriptions across the whole page: one per plain watch, one per window interval,
-// committed and pending alike. This is a backstop for a buggy or hostile page, not a budget
-// honest plugins design against. Every subscription re-reads the session's auth docs when a
-// write invalidates it, so this ceiling bounds that fan-out. Honest pages stay inside the
-// 16-slot and 6-interval caps above (96 server subscriptions at worst).
+/**
+ * Server subscriptions across the whole page: one per plain watch, one per window interval,
+ * committed and pending alike. This is a backstop for a buggy or hostile page, not a budget
+ * honest plugins design against. Every subscription re-reads the session's auth docs when a
+ * write invalidates it, so this ceiling bounds that fan-out. Honest pages stay inside the
+ * 16-slot and 6-interval caps above (96 server subscriptions at worst).
+ */
 const MAX_PAGE_SERVER_SUBSCRIPTIONS = 100;
 
 /**
  * Reads a host theme off a bridge message.
  *
- * The host resolves its colours and sends the values, because a plugin page is a cross-origin
- * document and inherits none of the host's custom properties. This comes over postMessage, so every
- * field is checked before the page can see it.
+ * The host resolves its colour scales and sends the values under their custom property names,
+ * because a plugin page is a cross-origin document and inherits none of the host's custom
+ * properties. This comes over postMessage, so every field is checked before the page can see it.
  *
  * @param {unknown} value
  * @returns {import("bonobo-plugin-sdk/frontend").BonoboUiTheme | null}
@@ -96,6 +112,25 @@ function read_theme(value) {
 	}
 
 	return /** @type {import("bonobo-plugin-sdk/frontend").BonoboUiTheme} */ ({ mode: candidate.mode, tokens });
+}
+
+/**
+ * Paints a host theme onto this document.
+ *
+ * The frame is a cross-origin document, so the host's stylesheet never reaches it. The SDK writes
+ * each scale value onto the root element under the app's own custom property name, and puts the
+ * app's `light` / `dark` class on the root too. A plugin stylesheet can then use
+ * `var(--color-base-1-03)` and `.dark &` exactly as the app does, and no plugin has to copy this loop.
+ *
+ * @param {import("bonobo-plugin-sdk/frontend").BonoboUiTheme} theme
+ */
+function apply_theme(theme) {
+	const root = document.documentElement;
+	for (const [name, value] of Object.entries(theme.tokens)) {
+		root.style.setProperty(name, value);
+	}
+	root.classList.toggle("light", theme.mode === "light");
+	root.classList.toggle("dark", theme.mode === "dark");
 }
 
 /**
@@ -213,6 +248,17 @@ function is_ui_context(value) {
 /**
  * Reads the host origin and frame nonce from the URL fragment. The fragment is available to the
  * page but is not sent in the asset request, cache key, or referrer.
+ *
+ * Why the host passes its origin at all: `postMessage` needs a target origin, and the SDK must
+ * never send with `"*"`. The same SDK file runs under a localhost host and under the deployed
+ * host, so it cannot hardcode the value, and it cannot discover it reliably either
+ * (`document.referrer` depends on the referrer policy, `location.ancestorOrigins` is not in
+ * Firefox). A wrong value only makes the SDK talk to nobody; it never grants anything. The value
+ * is not authentication of the embedder. CSP `frame-ancestors` on the asset response decides who
+ * may embed the frame, and only the host's session mint can produce a token.
+ *
+ * The checks below are format checks, not an allowlist: exactly these two keys, an origin with
+ * no path or query, a UUIDv4 nonce.
  */
 function read_bridge_bootstrap() {
 	const fragment = window.location.hash.slice(1);
@@ -222,13 +268,13 @@ function read_bridge_bootstrap() {
 
 	const params = new URLSearchParams(fragment);
 	const parentOrigins = params.getAll("parentOrigin");
-	const bridgeNonces = params.getAll("bridgeNonce");
-	if (params.size !== 2 || parentOrigins.length !== 1 || bridgeNonces.length !== 1) {
+	const nonces = params.getAll("nonce");
+	if (params.size !== 2 || parentOrigins.length !== 1 || nonces.length !== 1) {
 		throw new Error("Invalid host bridge fragment");
 	}
 
 	const parentOrigin = parentOrigins[0];
-	const bridgeNonce = bridgeNonces[0];
+	const nonce = nonces[0];
 	let parsedParentOrigin;
 	try {
 		parsedParentOrigin = new URL(parentOrigin);
@@ -241,11 +287,11 @@ function read_bridge_bootstrap() {
 	) {
 		throw new Error("Invalid host bridge parent origin");
 	}
-	if (!BRIDGE_NONCE_PATTERN.test(bridgeNonce)) {
+	if (!NONCE_PATTERN.test(nonce)) {
 		throw new Error("Invalid host bridge nonce");
 	}
 
-	return { parentOrigin, bridgeNonce };
+	return { parentOrigin, nonce };
 }
 
 /**
@@ -347,12 +393,16 @@ function create_documents_window(deps) {
 		 */
 		pending: null,
 		queuedLoadOlder: false,
-		/** Sticky: set on the first re-seat, when older docs are first known to exist. */
+		/**
+		 * Sticky: set on the first re-seat, when older docs are first known to exist.
+		 */
 		bottomOpen: false,
 		loadingOlder: false,
 		/** @type {DocumentsWindowInterval | null} */
 		awaitingTail: null,
-		/** One-shot: a refused load-older reports atCapacity on the next flush. */
+		/**
+		 * One-shot: a refused load-older reports atCapacity on the next flush.
+		 */
 		forceAtCapacity: false,
 		flushScheduled: false,
 		/** @type {string | null} */
@@ -522,8 +572,10 @@ function create_documents_window(deps) {
 		return { docs, hasMore, atCapacity, incomplete };
 	};
 
-	// One flush per microtask, and a post only when the WHOLE payload changed. Comparing docs
-	// alone would swallow the hasMore transition, because a re-seat is content-neutral on purpose.
+	/**
+	 * One flush per microtask, and a post only when the WHOLE payload changed. Comparing docs
+	 * alone would swallow the hasMore transition, because a re-seat is content-neutral on purpose.
+	 */
 	const schedule_flush = () => {
 		if (state.flushScheduled || state.dead) {
 			return;
@@ -594,10 +646,13 @@ function create_documents_window(deps) {
 			report_at_capacity();
 			return;
 		}
-		// The new tail starts at the STORED bound, not at a delivered key — the last interval's
-		// delivered array can be empty after physical deletes, but its bound was a real key once
-		// and stays a valid fencepost.
-		/** @type {DocumentsWindowInterval} */
+		/**
+		 * The new tail starts at the STORED bound, not at a delivered key — the last interval's
+		 * delivered array can be empty after physical deletes, but its bound was a real key once
+		 * and stays a valid fencepost.
+		 *
+		 * @type {DocumentsWindowInterval}
+		 */
 		const tail = {
 			start: last.end,
 			end: null,
@@ -725,8 +780,10 @@ function create_documents_window(deps) {
 		}
 	};
 
-	// All-or-nothing: the swap commits only once every replacement has a delivered result, so
-	// the flattened list never shows a partially re-read range.
+	/**
+	 * All-or-nothing: the swap commits only once every replacement has a delivered result, so
+	 * the flattened list never shows a partially re-read range.
+	 */
 	const commit_pending = () => {
 		// The caller (handle_result) only commits while a pending swap exists.
 		const pending = /** @type {NonNullable<typeof state.pending>} */ (state.pending);
@@ -785,9 +842,12 @@ function create_documents_window(deps) {
 		reconcile();
 	};
 
-	// START: one unbounded subscription, exactly the shape of a plain capped watch. The window
-	// machinery only engages when this first interval reports truncated.
-	/** @type {DocumentsWindowInterval} */
+	/**
+	 * START: one unbounded subscription, exactly the shape of a plain capped watch. The window
+	 * machinery only engages when this first interval reports truncated.
+	 *
+	 * @type {DocumentsWindowInterval}
+	 */
 	const head = {
 		start: null,
 		end: null,
@@ -852,8 +912,11 @@ function create_documents_window(deps) {
  * @returns {{ data: import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["data"], members: import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["members"], scopes: import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["scopes"] }}
  */
 function bonobo_ui_create_data_api(deps) {
-	// Live page-visible subscriptions: a plain watch and a document window each hold one entry.
-	/** @type {Set<object>} */
+	/**
+	 * Live page-visible subscriptions: a plain watch and a document window each hold one entry.
+	 *
+	 * @type {Set<object>}
+	 */
 	const registrations = new Set();
 
 	let serverSubscriptionCount = 0;
@@ -867,16 +930,20 @@ function bonobo_ui_create_data_api(deps) {
 	const release_server_slot = () => {
 		serverSubscriptionCount -= 1;
 	};
-	// `requiredSlots` defaults to 1, which is the same test as `count >= MAX`. A caller that is about
-	// to start more than one watcher passes how many it needs, so it can tell "no room at all" apart
-	// from "no room for the pair I am about to start".
-	/** @param {number} [requiredSlots] */
+	/**
+	 * `requiredSlots` defaults to 1, which is the same test as `count >= MAX`. A caller that is about
+	 * to start more than one watcher passes how many it needs, so it can tell "no room at all" apart
+	 * from "no room for the pair I am about to start".
+	 *
+	 * @param {number} [requiredSlots]
+	 */
 	const page_at_ceiling = (requiredSlots = 1) =>
 		serverSubscriptionCount + requiredSlots > MAX_PAGE_SERVER_SUBSCRIPTIONS;
 
-	// A death decided right in the watch call still must arrive like a real one: after the
-	// caller has its unsubscribe handle, on the same async timing a cached server answer has.
 	/**
+	 * A death decided right in the watch call still must arrive like a real one: after the
+	 * caller has its unsubscribe handle, on the same async timing a cached server answer has.
+	 *
 	 * @param {(docs: null, info?: { reason: string, message: string }) => void} onUpdate
 	 * @param {{ reason: string, message: string }} [info]
 	 */
@@ -929,8 +996,10 @@ function bonobo_ui_create_data_api(deps) {
 		registrations.add(entry);
 		/** @type {{ dispose: () => void } | null} */
 		let subscription = null;
-		// Death and unsubscribe share this: the registration entry decides liveness, so a
-		// late delivery or a second unsubscribe after either path is a no-op.
+		/**
+		 * Death and unsubscribe share this: the registration entry decides liveness, so a
+		 * late delivery or a second unsubscribe after either path is a no-op.
+		 */
 		const stop = () => {
 			if (!registrations.delete(entry)) {
 				return;
@@ -1450,7 +1519,7 @@ function create_convex_data_deps(convexClient) {
 
 /**
  * Connects the page to the embedding host app. It installs one shared `message` listener (for
- * init and token responses), posts `{ type: "bonobo:ready", bridgeNonce }` to `window.parent`,
+ * init and token responses), posts `{ type: "bonobo:ready", nonce }` to `window.parent`,
  * and resolves with the frontend client when the host's `bonobo:init` arrives. `bonobo:init`
  * messages after the first are ignored.
  *
@@ -1459,25 +1528,50 @@ function create_convex_data_deps(convexClient) {
  * messages only from that origin, `window.parent`, and the matching nonce. The session token
  * travels over postMessage only and is never placed in a URL.
  *
+ * The nonce is a conversation id for one mount of one iframe, not a secret. The host makes a new
+ * one per mount and puts it in the URL, so a new mount always loads a fresh document. It does
+ * three jobs: the host releases the token only after a ready message that carries it, which
+ * proves this document read this mount's fragment; a late init or token from a previous mount
+ * carries the old nonce and is dropped; and it backs up the `window.parent` check, because a
+ * window keeps its identity across navigations while the document behind it changes.
+ *
  * On init the SDK also opens the page's own Convex client against the init's `convexUrl`. The
  * client authenticates with short-lived plugin-session JWTs minted by exchanging the session
  * token at the same-origin `/plugins-ui/session-jwt` route; the `data` and `members` APIs run on
  * that client directly.
  *
+ * Token lifetimes, so plugin code never handles refresh itself: the session token lives 30
+ * minutes; `getToken` refreshes it through the host when it is expired or within 60 seconds of
+ * expiry, and a normal API call that meets a 401 refreshes once and retries once. The host
+ * rotates the token on the same session while that session lives. When the session is already
+ * gone (the device slept past its expiry), the host mints a new session for this same frame and
+ * answers the same refresh with its token, so the page keeps its state; the SDK treats that
+ * token like any rotation. The plugin-session JWT lives 10 minutes, capped by the session
+ * expiry; Convex asks for a new one when it runs out. The session record on the host is the
+ * kill switch: every plugin door reads it on each call, so revoking it ends every live
+ * subscription at once whatever a JWT says.
+ *
+ * Secrets never reach this frame. A `plu_` token has no secrets scope, and the SDK has no
+ * secrets API. A page that needs a secret calls its own backend through `backend.invoke`; the
+ * backend run reads the secret with `env.BONOBO.secrets.get(name)`.
+ *
  * @returns {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient>}
  */
 export async function bonobo_ui_connect() {
-	const { parentOrigin, bridgeNonce } = read_bridge_bootstrap();
+	const { parentOrigin, nonce } = read_bridge_bootstrap();
 
 	// Token state — set by `bonobo:init`, updated by `bonobo:token` and the JWT exchange.
 	let apiOrigin = "";
 	let token = "";
 	let tokenExpiresAt = 0;
 
-	// Theme state — set by `bonobo:init`, replaced by `bonobo:theme` when the member switches the
-	// host's theme. It stays null when the host sends none, so an older host keeps working and the
-	// page can fall back to its own colours.
-	/** @type {import("bonobo-plugin-sdk/frontend").BonoboUiTheme | null} */
+	/**
+	 * Theme state — set by `bonobo:init`, replaced by `bonobo:theme` when the member switches the
+	 * host's theme. Each one is painted onto the document as it arrives. It stays null when the host
+	 * sends none, and then the document keeps the page's own colours.
+	 *
+	 * @type {import("bonobo-plugin-sdk/frontend").BonoboUiTheme | null}
+	 */
 	let theme = null;
 	/** @type {Set<(theme: import("bonobo-plugin-sdk/frontend").BonoboUiTheme) => void>} */
 	const themeSubscribers = new Set();
@@ -1519,7 +1613,7 @@ export async function bonobo_ui_connect() {
 			}, REFRESH_DEADLINE_MS);
 			pending_refreshes.set(requestId, { resolve, reject, timeout });
 			try {
-				window.parent.postMessage({ type: "bonobo:token-refresh-request", bridgeNonce, requestId }, parentOrigin);
+				window.parent.postMessage({ type: "bonobo:token-refresh-request", nonce, requestId }, parentOrigin);
 			} catch (error) {
 				clearTimeout(timeout);
 				pending_refreshes.delete(requestId);
@@ -1662,12 +1756,15 @@ export async function bonobo_ui_connect() {
 	 * The Convex client's auth callback. Every call mints a fresh JWT, so a repeated call never
 	 * hands back a stale one.
 	 *
-	 * This chain is also what keeps an open healthy page alive: `getToken()` refreshes the
-	 * session token through the host when the session is within 60 seconds of its expiry, and
-	 * that host refresh EXTENDS the session and moves its scheduled deletion. A page that slept
-	 * past the session expiry cannot recover here — the session doc is gone, every path below
-	 * answers null, and null tells the Convex client this page is unauthenticated (its
-	 * subscriptions die; the host frame's Retry or a reload mints a fresh session).
+	 * This chain is also what keeps an open page alive: `getToken()` refreshes the session
+	 * token through the host when the session is within 60 seconds of its expiry, and that host
+	 * refresh EXTENDS the session and moves its scheduled deletion. A page that slept past the
+	 * session expiry recovers here too: the host finds the session doc gone, mints a new session
+	 * for this same frame, and answers the refresh with the new token, so the exchange below
+	 * succeeds and the Convex client re-runs its query set under the new session. Only when the
+	 * host refuses to mint (uninstalled, membership ended, rate limit) does every path below
+	 * answer null, and null tells the Convex client this page is unauthenticated (its
+	 * subscriptions die; by then the host has replaced the frame with its error state and Retry).
 	 */
 	async function fetch_convex_jwt() {
 		// A transient failure must not answer null: the Convex client treats one null as a final
@@ -1717,7 +1814,7 @@ export async function bonobo_ui_connect() {
 		let readyInterval;
 
 		const post_ready = () => {
-			window.parent.postMessage({ type: "bonobo:ready", bridgeNonce }, parentOrigin);
+			window.parent.postMessage({ type: "bonobo:ready", nonce }, parentOrigin);
 		};
 
 		const stop_ready = () => {
@@ -1736,7 +1833,7 @@ export async function bonobo_ui_connect() {
 			if (
 				message.type === "bonobo:init" &&
 				!initialized &&
-				message.bridgeNonce === bridgeNonce &&
+				message.nonce === nonce &&
 				typeof message.apiOrigin === "string" &&
 				typeof message.convexUrl === "string" &&
 				typeof message.token === "string" &&
@@ -1753,12 +1850,32 @@ export async function bonobo_ui_connect() {
 				// The page talks to Convex itself. expectAuth keeps queries parked until the
 				// first JWT arrives, so a subscription never runs an unauthenticated round first.
 				const convexClient = new ConvexClient(message.convexUrl, { expectAuth: true, unsavedChangesWarning: false });
+				let lastAuthWakePollAt = Date.now();
+				const authWakeInterval = setInterval(() => {
+					const now = Date.now();
+					if (now - lastAuthWakePollAt >= AUTH_WAKE_GAP_MS) {
+						// setAuth pauses the socket before it fetches. That keeps the old session's
+						// query set from returning a permanent null while the host re-mints it.
+						convexClient.setAuth(fetch_convex_jwt);
+					}
+					lastAuthWakePollAt = now;
+				}, AUTH_WAKE_POLL_MS);
 				convexClient.setAuth(fetch_convex_jwt);
 				// The document is going away (unload or bfcache). Close the client so the server
 				// drops this page's subscriptions; a page restored from bfcache stays frozen and
 				// needs a reload.
-				window.addEventListener("pagehide", () => void convexClient.close(), { once: true });
+				window.addEventListener(
+					"pagehide",
+					() => {
+						clearInterval(authWakeInterval);
+						void convexClient.close();
+					},
+					{ once: true },
+				);
 				theme = read_theme(message.theme);
+				if (theme) {
+					apply_theme(theme);
+				}
 				const { data, members, scopes } = bonobo_ui_create_data_api({
 					...create_convex_data_deps(convexClient),
 					// The one thing that tells a lapsed session apart from a broken connection. The
@@ -1788,7 +1905,7 @@ export async function bonobo_ui_connect() {
 				});
 			} else if (
 				initialized &&
-				message.bridgeNonce === bridgeNonce &&
+				message.nonce === nonce &&
 				message.type === "bonobo:token" &&
 				typeof message.requestId === "string" &&
 				typeof message.token === "string" &&
@@ -1803,17 +1920,19 @@ export async function bonobo_ui_connect() {
 					tokenExpiresAt = message.tokenExpiresAt;
 					pending.resolve(message.token);
 				}
-			} else if (initialized && message.bridgeNonce === bridgeNonce && message.type === "bonobo:theme") {
+			} else if (initialized && message.nonce === nonce && message.type === "bonobo:theme") {
 				const next = read_theme(message.theme);
 				if (next) {
 					theme = next;
+					// Paint first, so a subscriber that reads computed styles sees the new theme.
+					apply_theme(next);
 					for (const onChange of themeSubscribers) {
 						onChange(next);
 					}
 				}
 			} else if (
 				initialized &&
-				message.bridgeNonce === bridgeNonce &&
+				message.nonce === nonce &&
 				message.type === "bonobo:token-error" &&
 				typeof message.requestId === "string" &&
 				typeof message.message === "string"
