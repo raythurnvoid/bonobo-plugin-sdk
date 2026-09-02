@@ -19,7 +19,7 @@ type FakeOnUpdateEntry = {
 type FakeConvexClientInstance = {
 	address: string;
 	options: Record<string, unknown>;
-	fetchToken: (() => Promise<string | null>) | null;
+	fetchToken: ((args?: { forceRefreshToken: boolean }) => Promise<string | null>) | null;
 	setAuthCalls: number;
 	closed: boolean;
 	onUpdates: FakeOnUpdateEntry[];
@@ -44,7 +44,7 @@ vi.mock("convex/browser", () => ({
 	ConvexClient: class FakeConvexClient {
 		address: string;
 		options: Record<string, unknown>;
-		fetchToken: (() => Promise<string | null>) | null = null;
+		fetchToken: ((args?: { forceRefreshToken: boolean }) => Promise<string | null>) | null = null;
 		setAuthCalls = 0;
 		closed = false;
 		onUpdates: FakeOnUpdateEntry[] = [];
@@ -55,7 +55,7 @@ vi.mock("convex/browser", () => ({
 			this.options = options;
 			fakeConvex.instances.push(this);
 		}
-		setAuth(fetchToken: () => Promise<string | null>) {
+		setAuth(fetchToken: (args?: { forceRefreshToken: boolean }) => Promise<string | null>) {
 			this.fetchToken = fetchToken;
 			this.setAuthCalls += 1;
 		}
@@ -265,7 +265,10 @@ describe("bonobo_ui_connect", () => {
 		expect(instance.address).toBe(CONVEX_URL);
 		// expectAuth parks queries until the first JWT; the SDK never wants the unsaved-changes
 		// beforeunload handler inside a sandboxed iframe.
-		expect(instance.options).toEqual({ expectAuth: true, unsavedChangesWarning: false });
+		// initialAuthTokenReuse makes the client schedule its refetch from the delivered JWT's
+		// expiry; without it the client forces a second fetch right after the first JWT is
+		// confirmed, which would refresh the session at every startup.
+		expect(instance.options).toEqual({ expectAuth: true, unsavedChangesWarning: false, initialAuthTokenReuse: true });
 		expect(instance.fetchToken).toBeTypeOf("function");
 		expect(instance.closed).toBe(false);
 
@@ -540,6 +543,7 @@ describe("bonobo_ui_connect", () => {
 	});
 });
 
+// `make_init` carries no JWT, so every test here runs the fallback: the SDK exchanges the token.
 describe("convex session jwt auth", () => {
 	function stub_exchange(responses: Response[] | ((body: { token: string }) => Response)) {
 		const exchangeCalls: { token: string }[] = [];
@@ -719,6 +723,172 @@ describe("convex session jwt auth", () => {
 		]);
 		await expect(convex_instance().fetchToken!()).resolves.toBeNull();
 	});
+});
+
+describe("convex session jwt delivered by the host", () => {
+	const JWT_LIFETIME_MS = 1_800_000;
+
+	async function connect_with_jwt(overrides?: Record<string, unknown>) {
+		const postSpy = spy_on_post_message();
+		const clientPromise = bonobo_ui_connect();
+		post_from_host(make_init({ jwt: "jwt_1", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS, ...overrides }));
+		return { client: await clientPromise, postSpy };
+	}
+
+	// A delivered JWT must never be exchanged, so any fetch is a failure.
+	function refuse_exchange() {
+		const fetchMock = vi.fn((url: string): Promise<Response> => {
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		return fetchMock;
+	}
+
+	function answer_error(postSpy: ReturnType<typeof spy_on_post_message>, index: number) {
+		const request = refresh_requests(postSpy)[index]?.[0] as { requestId: string } | undefined;
+		if (!request) {
+			throw new Error("refresh request not posted");
+		}
+		post_from_host({
+			type: "bonobo:token-error",
+			nonce: NONCE,
+			requestId: request.requestId,
+			message: "Session revoked",
+		});
+	}
+
+	test("hands the delivered JWT to the Convex client without an exchange request", async () => {
+		const { postSpy } = await connect_with_jwt();
+		const fetchMock = refuse_exchange();
+
+		// The client's startup fetch is not forced.
+		await expect(convex_instance().fetchToken!({ forceRefreshToken: false })).resolves.toBe("jwt_1");
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(refresh_requests(postSpy)).toHaveLength(0);
+	});
+
+	test("a forced refetch for the JWT Convex holds refreshes once through the host and returns the new JWT", async () => {
+		const { postSpy } = await connect_with_jwt();
+		const fetchMock = refuse_exchange();
+		const fetchToken = convex_instance().fetchToken!;
+		await expect(fetchToken({ forceRefreshToken: false })).resolves.toBe("jwt_1");
+
+		// Convex refused jwt_1 (or its expiry timer fired): it asks for a newer token.
+		const jwtPromise = fetchToken({ forceRefreshToken: true });
+		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
+		answer_refresh(postSpy, "plu_2", { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS });
+
+		await expect(jwtPromise).resolves.toBe("jwt_2");
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	test("a forced refetch after a REST rotation still refreshes through the host so Convex holds a JWT issued now", async () => {
+		const { client, postSpy } = await connect_with_jwt();
+		refuse_exchange();
+		const fetchToken = convex_instance().fetchToken!;
+		await expect(fetchToken({ forceRefreshToken: false })).resolves.toBe("jwt_1");
+
+		// A 401 on a REST call already rotated the pair.
+		const tokenPromise = client.refreshToken();
+		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
+		answer_refresh(postSpy, "plu_2", { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS });
+		await expect(tokenPromise).resolves.toBe("plu_2");
+
+		// The Convex client schedules its next ask from the delivered JWT's `exp - iat`, as if it were
+		// issued at that moment. Handing it the stored jwt_2 (issued earlier) would push that ask past
+		// the real session end, so a forced ask always rotates again.
+		const jwtPromise = fetchToken({ forceRefreshToken: true });
+		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(2));
+		answer_refresh(postSpy, "plu_3", { jwt: "jwt_3", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS });
+		await expect(jwtPromise).resolves.toBe("jwt_3");
+	});
+
+	test("a JWT of the wrong type counts as not delivered, so the exchange fallback runs", async () => {
+		const { postSpy } = await connect_with_jwt({ jwt: 123 });
+		const exchangeCalls: { token: string }[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url: string, init: { body: string }) => {
+				exchangeCalls.push(JSON.parse(init.body) as { token: string });
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({ _yay: { jwt: "jwt_exchanged", sessionExpiresAt: Date.now() + JWT_LIFETIME_MS } }),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					),
+				);
+			}),
+		);
+
+		await expect(convex_instance().fetchToken!({ forceRefreshToken: false })).resolves.toBe("jwt_exchanged");
+		expect(exchangeCalls).toEqual([{ token: "plu_1" }]);
+		expect(refresh_requests(postSpy)).toHaveLength(0);
+	});
+
+	test("a delivered JWT inside the margin refreshes through the host before it is handed out", async () => {
+		const { postSpy } = await connect_with_jwt({
+			tokenExpiresAt: Date.now() + 30_000,
+			jwtExpiresAt: Date.now() + 30_000,
+		});
+		const fetchMock = refuse_exchange();
+
+		const jwtPromise = convex_instance().fetchToken!({ forceRefreshToken: false });
+		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
+		answer_refresh(postSpy, "plu_2", { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS });
+
+		await expect(jwtPromise).resolves.toBe("jwt_2");
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	test("a refresh answered without a JWT falls back to exchanging the refreshed token", async () => {
+		const { postSpy } = await connect_with_jwt({
+			tokenExpiresAt: Date.now() + 30_000,
+			jwtExpiresAt: Date.now() + 30_000,
+		});
+		const exchangeCalls: { token: string }[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url: string, init: { body: string }) => {
+				exchangeCalls.push(JSON.parse(init.body) as { token: string });
+				return Promise.resolve(
+					new Response(
+						JSON.stringify({ _yay: { jwt: "jwt_exchanged", sessionExpiresAt: Date.now() + JWT_LIFETIME_MS } }),
+						{
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						},
+					),
+				);
+			}),
+		);
+
+		const jwtPromise = convex_instance().fetchToken!({ forceRefreshToken: false });
+		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
+		// An older host answers the token only.
+		answer_refresh(postSpy, "plu_2");
+
+		await expect(jwtPromise).resolves.toBe("jwt_exchanged");
+		expect(exchangeCalls).toEqual([{ token: "plu_2" }]);
+	});
+
+	test("a host that keeps refusing the refresh answers null after the transient retries", async () => {
+		const { postSpy } = await connect_with_jwt({
+			tokenExpiresAt: Date.now() + 30_000,
+			jwtExpiresAt: Date.now() + 30_000,
+		});
+		const fetchMock = refuse_exchange();
+
+		const jwtPromise = convex_instance().fetchToken!({ forceRefreshToken: false });
+		for (let index = 0; index < 3; index += 1) {
+			await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(index + 1), { timeout: 5_000 });
+			answer_error(postSpy, index);
+		}
+
+		await expect(jwtPromise).resolves.toBeNull();
+		expect(fetchMock).not.toHaveBeenCalled();
+	}, 15_000);
 });
 
 describe("data.watch", () => {

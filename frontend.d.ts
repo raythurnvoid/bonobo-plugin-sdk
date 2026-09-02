@@ -142,10 +142,11 @@ export interface BonoboUiTheme {
 
 /**
  * The host's answer to {@link BonoboUiReadyMessage}: it delivers the short-lived scoped session
- * token (`plu_...`), the Convex deployment URL the frame's own client connects to, and the
- * embedding context. The init is trusted only from `window.parent`, the exact `parentOrigin`
- * from the URL fragment, and the matching frame nonce. The token travels over postMessage only
- * and is never placed in a URL. `tokenExpiresAt` is Unix epoch milliseconds.
+ * token (`plu_...`) with its plugin-session JWT, the Convex deployment URL the frame's own client
+ * connects to, and the embedding context. The init is trusted only from `window.parent`, the
+ * exact `parentOrigin` from the URL fragment, and the matching frame nonce. The token and the JWT
+ * travel over postMessage only and are never placed in a URL. `tokenExpiresAt` and
+ * `jwtExpiresAt` are Unix epoch milliseconds.
  */
 export interface BonoboUiInitMessage {
 	type: "bonobo:init";
@@ -153,12 +154,19 @@ export interface BonoboUiInitMessage {
 	apiOrigin: string;
 	/**
 	 * The Convex deployment URL. The SDK opens its own Convex client against it and
-	 * authenticates with plugin-session JWTs minted from the session token, so the `data` and
-	 * `members` APIs run without the host window in the path.
+	 * authenticates with the plugin-session JWT delivered beside the session token, so the `data`
+	 * and `members` APIs run without the host window in the path.
 	 */
 	convexUrl: string;
 	token: string;
 	tokenExpiresAt: number;
+	/**
+	 * The plugin-session JWT the frame's own Convex client authenticates with, signed for the same
+	 * expiry as the token. A host may send none; the SDK then exchanges the token at
+	 * `POST <apiOrigin>/plugins-ui/session-jwt` itself.
+	 */
+	jwt?: string;
+	jwtExpiresAt?: number;
 	context: BonoboUiContext;
 	/**
 	 * The host theme at startup. A host may send none; then `client.theme.current()` stays `null`,
@@ -169,10 +177,11 @@ export interface BonoboUiInitMessage {
 
 /**
  * The host's success answer to {@link BonoboUiTokenRefreshRequestMessage} — a fresh session
- * token. While the session lives, the refresh rotates the token on that session and extends its
- * life on the server. When the session is already gone (the device slept past its expiry), the
- * token belongs to a new session the host minted for this same frame; the page does nothing
- * different. `tokenExpiresAt` is Unix epoch milliseconds.
+ * token with its plugin-session JWT. While the session lives, the refresh rotates the token on
+ * that session and extends its life on the server. When the session is already gone (the device
+ * slept past its expiry), the token belongs to a new session the host minted for this same frame;
+ * the page does nothing different. `tokenExpiresAt` and `jwtExpiresAt` are Unix epoch
+ * milliseconds.
  */
 export interface BonoboUiTokenMessage {
 	type: "bonobo:token";
@@ -180,6 +189,12 @@ export interface BonoboUiTokenMessage {
 	requestId: string;
 	token: string;
 	tokenExpiresAt: number;
+	/**
+	 * The JWT for the rotated token, signed for the same expiry. A host may send none; the SDK
+	 * then exchanges the token itself.
+	 */
+	jwt?: string;
+	jwtExpiresAt?: number;
 }
 
 /**
@@ -810,12 +825,13 @@ export type BonoboUiBackendInvokeResult =
  *
  * On init the SDK opens the frame's own Convex client against the init's `convexUrl` and closes
  * it on `pagehide` — a frame restored from the browser's back/forward cache stays frozen and
- * needs a reload. The client authenticates with short-lived plugin-session JWTs minted by
- * exchanging the session token at the same-origin `/plugins-ui/session-jwt` route. The exchange
- * itself never extends the session; it stays alive because the SDK refreshes the session token
- * through the host, and that host refresh extends it. A one-second wake poll treats a wall-clock
- * gap of 30 seconds as sleep and calls `setAuth` again, so Convex pauses before the old session's
- * query set can reconnect while the host re-mints it.
+ * needs a reload. The client authenticates with the plugin-session JWT the host delivers beside
+ * the session token; it expires with the token, and a host refresh answers with both. The Convex
+ * client asks for a new JWT shortly before it expires, and that ask is what triggers the host
+ * refresh, which extends the session. A host that sends no JWT is covered by exchanging the token
+ * at the same-origin `/plugins-ui/session-jwt` route; that exchange never extends the session. A
+ * one-second wake poll treats a wall-clock gap of 30 seconds as sleep and calls `setAuth` again,
+ * so Convex pauses before the old session's query set can reconnect while the host re-mints it.
  *
  * Every incoming message requires that origin, `window.parent`, and the fragment nonce;
  * everything else is silently ignored.

@@ -14,16 +14,19 @@
  * - Public `/api/v1/*` calls go straight to the iframe's own origin with
  *   `Authorization: Bearer <token>`.
  * - The `data` and `members` APIs run on the page's OWN Convex client. The client authenticates
- *   with a short-lived plugin-session JWT, minted by exchanging the session token at the
- *   same-origin `/plugins-ui/session-jwt` route. The host window is not part of that data path;
- *   it only answers session-token refreshes over the bridge.
+ *   with the plugin-session JWT the host delivers beside the session token, in `bonobo:init` and
+ *   in every `bonobo:token`. A host that sends no JWT is covered by the same-origin
+ *   `/plugins-ui/session-jwt` exchange. The host window is not part of that data path; it only
+ *   answers session-token refreshes over the bridge.
  */
 
 import { ConvexClient } from "convex/browser";
 import { anyApi } from "convex/server";
 
 /**
- * `getToken` refreshes when the token is expired or expires within this margin.
+ * `getToken` refreshes when the token is expired or expires within this margin. The Convex auth
+ * callback treats the stored JWT the same way. The Convex client itself asks for a new JWT 10
+ * seconds before it expires, which is inside this margin, so that ask always ends in a host refresh.
  */
 const TOKEN_EXPIRY_MARGIN_MS = 60_000;
 const READY_RETRY_MS = 500;
@@ -1536,18 +1539,19 @@ function create_convex_data_deps(convexClient) {
  * window keeps its identity across navigations while the document behind it changes.
  *
  * On init the SDK also opens the page's own Convex client against the init's `convexUrl`. The
- * client authenticates with short-lived plugin-session JWTs minted by exchanging the session
- * token at the same-origin `/plugins-ui/session-jwt` route; the `data` and `members` APIs run on
- * that client directly.
+ * client authenticates with the plugin-session JWT the host delivers beside the session token;
+ * the `data` and `members` APIs run on that client directly. A host that sends no JWT is covered
+ * by the same-origin `/plugins-ui/session-jwt` exchange.
  *
- * Token lifetimes, so plugin code never handles refresh itself: the session token lives 30
- * minutes; `getToken` refreshes it through the host when it is expired or within 60 seconds of
- * expiry, and a normal API call that meets a 401 refreshes once and retries once. The host
- * rotates the token on the same session while that session lives. When the session is already
- * gone (the device slept past its expiry), the host mints a new session for this same frame and
- * answers the same refresh with its token, so the page keeps its state; the SDK treats that
- * token like any rotation. The plugin-session JWT lives 10 minutes, capped by the session
- * expiry; Convex asks for a new one when it runs out. The session record on the host is the
+ * Token lifetimes, so plugin code never handles refresh itself: the session token and its JWT
+ * live 30 minutes and expire together. `getToken` refreshes both through the host when they are
+ * expired or within 60 seconds of expiry, and a normal API call that meets a 401 refreshes once
+ * and retries once. The Convex client asks for a new JWT 10 seconds before it expires, which is
+ * inside that margin, so its own ask is what drives the host refresh: one cadence for both
+ * credentials. The host rotates the token on the same session while that session lives. When the
+ * session is already gone (the device slept past its expiry), the host mints a new session for
+ * this same frame and answers the same refresh with its token and JWT, so the page keeps its
+ * state; the SDK treats that answer like any rotation. The session record on the host is the
  * kill switch: every plugin door reads it on each call, so revoking it ends every live
  * subscription at once whatever a JWT says.
  *
@@ -1564,6 +1568,10 @@ export async function bonobo_ui_connect() {
 	let apiOrigin = "";
 	let token = "";
 	let tokenExpiresAt = 0;
+	// The plugin-session JWT delivered beside the token. Empty when the host sent none; the exchange
+	// fallback then fills it.
+	let jwt = "";
+	let jwtExpiresAt = 0;
 
 	/**
 	 * Theme state — set by `bonobo:init`, replaced by `bonobo:theme` when the member switches the
@@ -1624,6 +1632,28 @@ export async function bonobo_ui_connect() {
 		});
 		return refresh_in_flight;
 	}
+
+	const jwt_is_fresh = () => jwt !== "" && Date.now() < jwtExpiresAt - TOKEN_EXPIRY_MARGIN_MS;
+
+	/**
+	 * Stores the JWT a host message delivered beside the token, or clears it when the message
+	 * carried none (an older host): the exchange fallback then takes over.
+	 *
+	 * @param {{ jwt?: unknown, jwtExpiresAt?: unknown }} message
+	 */
+	const store_delivered_jwt = (message) => {
+		if (
+			typeof message.jwt === "string" &&
+			typeof message.jwtExpiresAt === "number" &&
+			Number.isFinite(message.jwtExpiresAt)
+		) {
+			jwt = message.jwt;
+			jwtExpiresAt = message.jwtExpiresAt;
+		} else {
+			jwt = "";
+			jwtExpiresAt = 0;
+		}
+	};
 
 	/**
 	 * `fetch` against `apiOrigin + path` with `Authorization: Bearer <token>`. When `init.body`
@@ -1736,12 +1766,12 @@ export async function bonobo_ui_connect() {
 	};
 
 	/**
-	 * Exchanges the session token for a short-lived plugin-session JWT at the asset origin's
-	 * `/plugins-ui/session-jwt` route. For a published frame this is a same-origin JSON POST with
-	 * no preflight, and the route answers no other origin, so the JWT never becomes readable
-	 * cross-origin. The one exception is the app's development-only frame override: a dev
-	 * deployment may allowlist exactly one extra origin for this route, and the same POST then
-	 * runs preflighted from there.
+	 * Fallback for a host that delivered no JWT: exchanges the session token for the plugin-session
+	 * JWT at the asset origin's `/plugins-ui/session-jwt` route. For a published frame this is a
+	 * same-origin JSON POST with no preflight, and the route answers no other origin, so the JWT
+	 * never becomes readable cross-origin. The one exception is the app's development-only frame
+	 * override: a dev deployment may allowlist exactly one extra origin for this route, and the
+	 * same POST then runs preflighted from there.
 	 *
 	 * @param {string} sessionToken
 	 */
@@ -1753,28 +1783,49 @@ export async function bonobo_ui_connect() {
 		});
 
 	/**
-	 * The Convex client's auth callback. Every call mints a fresh JWT, so a repeated call never
-	 * hands back a stale one.
+	 * The Convex client's auth callback. The stored JWT answers while it is fresh, so a startup or
+	 * a wake from a short sleep costs no request at all.
 	 *
-	 * This chain is also what keeps an open page alive: `getToken()` refreshes the session
-	 * token through the host when the session is within 60 seconds of its expiry, and that host
-	 * refresh EXTENDS the session and moves its scheduled deletion. A page that slept past the
-	 * session expiry recovers here too: the host finds the session doc gone, mints a new session
-	 * for this same frame, and answers the refresh with the new token, so the exchange below
-	 * succeeds and the Convex client re-runs its query set under the new session. Only when the
-	 * host refuses to mint (uninstalled, membership ended, rate limit) does every path below
-	 * answer null, and null tells the Convex client this page is unauthenticated (its
+	 * This chain is also what keeps an open page alive. When the stored JWT is inside the 60-second
+	 * margin, or Convex refused the very JWT it holds (a forced refetch for it), one host refresh
+	 * replaces both credentials, and that host refresh EXTENDS the session and moves its scheduled
+	 * deletion. A page that slept past the session expiry recovers here too: the host finds the
+	 * session doc gone, mints a new session for this same frame, and answers the refresh with the
+	 * new token and JWT, so the Convex client re-runs its query set under the new session. Only
+	 * when the host refuses to mint (uninstalled, membership ended, rate limit) does every path
+	 * below answer null, and null tells the Convex client this page is unauthenticated (its
 	 * subscriptions die; by then the host has replaced the frame with its error state and Retry).
+	 *
+	 * A host that sends no JWT falls through to the exchange.
+	 *
+	 * @param {{ forceRefreshToken: boolean }} [args]
 	 */
-	async function fetch_convex_jwt() {
+	async function fetch_convex_jwt(args) {
+		const forceRefreshToken = args?.forceRefreshToken === true;
 		// A transient failure must not answer null: the Convex client treats one null as a final
 		// "unauthenticated" and never asks again, so a two-second network blip or a 429 from the
-		// exchange bucket would kill the page for good. Retry the transient shapes (thrown fetch,
-		// 429, 5xx) a few times before giving up; a hard refusal still answers null right away.
+		// exchange bucket would kill the page for good. Retry the transient shapes (thrown refresh or
+		// fetch, 429, 5xx) a few times before giving up; a hard refusal still answers null right away.
 		for (let attempt = 0; ; attempt += 1) {
+			// The stored JWT answers a plain ask while it is fresh. A forced ask (the Convex client's
+			// own expiry timer, or a server refusal) must end in a JWT issued now: the client schedules
+			// its next ask from that JWT's `exp - iat`, as if it had just been issued, so a stored JWT
+			// that a REST call rotated earlier would make it wait past the real session end.
+			if (jwt_is_fresh() && !forceRefreshToken) {
+				return jwt;
+			}
+
 			/** @type {Response | null} */
 			let response = null;
 			try {
+				// A delivered JWT is replaced through the host: the answer carries both credentials.
+				if (jwt !== "") {
+					await refreshToken();
+					if (jwt_is_fresh()) {
+						return jwt;
+					}
+					// The host answered a token without a JWT. Fall through to the exchange.
+				}
 				response = await exchange_session_jwt(await getToken());
 				if (response.status === 401) {
 					// The session went stale between the margin check and the exchange (for example
@@ -1788,15 +1839,17 @@ export async function bonobo_ui_connect() {
 
 			if (response?.ok) {
 				const body = await response.json().catch(() => null);
-				const jwt = body?._yay?.jwt;
+				const exchangedJwt = body?._yay?.jwt;
 				const sessionExpiresAt = body?._yay?.sessionExpiresAt;
-				if (typeof jwt !== "string" || typeof sessionExpiresAt !== "number") {
+				if (typeof exchangedJwt !== "string" || typeof sessionExpiresAt !== "number") {
 					return null;
 				}
 				// Keep the stored expiry in sync with the server's view of the session, so
 				// getToken's refresh margin stays anchored to the real session end.
 				tokenExpiresAt = sessionExpiresAt;
-				return jwt;
+				jwt = exchangedJwt;
+				jwtExpiresAt = sessionExpiresAt;
+				return exchangedJwt;
 			}
 
 			const transient = response === null || response.status === 429 || response.status >= 500;
@@ -1847,9 +1900,17 @@ export async function bonobo_ui_connect() {
 				apiOrigin = message.apiOrigin;
 				token = message.token;
 				tokenExpiresAt = message.tokenExpiresAt;
+				store_delivered_jwt(message);
 				// The page talks to Convex itself. expectAuth keeps queries parked until the
 				// first JWT arrives, so a subscription never runs an unauthenticated round first.
-				const convexClient = new ConvexClient(message.convexUrl, { expectAuth: true, unsavedChangesWarning: false });
+				// initialAuthTokenReuse makes the client schedule its refetch from the delivered
+				// JWT's expiry. Without it the client forces a second fetch right after the first
+				// JWT is confirmed, which would refresh the session at every startup.
+				const convexClient = new ConvexClient(message.convexUrl, {
+					expectAuth: true,
+					unsavedChangesWarning: false,
+					initialAuthTokenReuse: true,
+				});
 				let lastAuthWakePollAt = Date.now();
 				const authWakeInterval = setInterval(() => {
 					const now = Date.now();
@@ -1918,6 +1979,7 @@ export async function bonobo_ui_connect() {
 					clearTimeout(pending.timeout);
 					token = message.token;
 					tokenExpiresAt = message.tokenExpiresAt;
+					store_delivered_jwt(message);
 					pending.resolve(message.token);
 				}
 			} else if (initialized && message.nonce === nonce && message.type === "bonobo:theme") {
