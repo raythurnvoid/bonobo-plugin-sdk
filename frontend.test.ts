@@ -276,6 +276,40 @@ describe("bonobo_ui_connect", () => {
 		expect(instance.closed).toBe(true);
 	});
 
+	test("resolves the frame's own Convex client and the typed door references", async () => {
+		const client = await connect_client();
+
+		// The same instance the data, member and scope wrappers use, so a direct call shares their
+		// authentication and closes with them on pagehide. A second client would mean a second
+		// socket and a second JWT fetch per frame.
+		expect(fakeConvex.instances).toHaveLength(1);
+		expect(client.convex).toBe(convex_instance());
+
+		// At runtime a reference is an `anyApi` path; the generated types exist only at compile time.
+		expect(getFunctionName(client.api.plugins_data.list_members)).toBe("plugins_data:list_members");
+		expect(getFunctionName(client.api.plugins_data.watch_documents)).toBe("plugins_data:watch_documents");
+	});
+
+	test("declares the direct client and the generated door types", async () => {
+		// Read as text for the reason the fetchJson test gives: nothing in this package type-checks
+		// `frontend.d.ts`, so a type-level assertion here would never run.
+		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
+		expect(declaration).toMatch(/^\tconvex: ConvexClient;$/m);
+		expect(declaration).toMatch(/^\tapi: BonoboConvexApi;$/m);
+
+		// The generated file is its own export, so a plugin can name the type without the client.
+		const packageJson = JSON.parse(await readFile(join(import.meta.dirname, "package.json"), "utf8")) as {
+			exports: Record<string, unknown>;
+		};
+		expect(packageJson.exports["./convex-api"]).toEqual({ types: "./convex-api.d.ts" });
+
+		// The shipped file must stand alone: the generator inlines every app type, so a plugin
+		// never depends on app source. A relative import here would break every consumer.
+		const generated = await readFile(join(import.meta.dirname, "convex-api.d.ts"), "utf8");
+		expect(generated).toMatch(/^export type BonoboConvexApi = \{$/m);
+		expect(generated).not.toMatch(/import\("\.\.?\//);
+	});
+
 	test("accepts a file-view context and rejects contexts with a missing or unknown kind", async () => {
 		spy_on_post_message();
 		const clientPromise = bonobo_ui_connect();

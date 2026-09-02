@@ -1,7 +1,7 @@
 {
 	"name": "bonobo-plugin-sdk",
 	"private": false,
-	"version": "0.11.0",
+	"version": "0.12.0",
 	"license": "Apache-2.0",
 	"types": "./index.d.ts",
 	"exports": {
@@ -11,12 +11,15 @@
 		"./frontend": {
 			"types": "./frontend.d.ts",
 			"import": "./frontend.js"
+		},
+		"./convex-api": {
+			"types": "./convex-api.d.ts"
 		}
 	},
 	"scripts": {
 		"test": "vitest",
 		"test:once": "vitest run --testTimeout 30000 --hookTimeout 30000 --teardownTimeout 30000",
-		"typecheck": "tsc --allowJs --checkJs --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck frontend.js"
+		"typecheck": "tsc --allowJs --checkJs --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck frontend.js && tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck frontend.test-d.ts"
 	},
 	"dependencies": {
 		"@cloudflare/workers-types": "^4.20260410.1",

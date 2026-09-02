@@ -24,6 +24,15 @@ import { ConvexClient } from "convex/browser";
 import { anyApi } from "convex/server";
 
 /**
+ * The plugin doors with the types the app generated into `convex-api.d.ts`. `anyApi` builds any
+ * reference at runtime, so this cast is the one place the SDK trusts that the generated file
+ * describes the deployment the frame talks to.
+ *
+ * @type {import("bonobo-plugin-sdk/convex-api").BonoboConvexApi}
+ */
+const bonobo_convex_api = /** @type {any} */ (anyApi);
+
+/**
  * `getToken` refreshes when the token is expired or expires within this margin. The Convex auth
  * callback treats the stored JWT the same way. The Convex client itself asks for a new JWT 10
  * seconds before it expires, which is inside this margin, so that ask always ends in a host refresh.
@@ -347,6 +356,13 @@ function validate_watch_inputs(args) {
  * @typedef {{ keyStartExclusive?: string, keyEndInclusive?: string } | null} DataWatchBounds
  * @typedef {{ value: { docs: import("bonobo-plugin-sdk").BonoboPublicDoc[], truncated: boolean } | null } | { queryError: unknown }} DataWatchOutcome
  * @typedef {(queryArgs: DataWatchQueryArgs, bounds: DataWatchBounds, onResult: (outcome: DataWatchOutcome) => void) => ({ dispose: () => void } | null)} DataStartWatch
+ */
+
+/**
+ * The plugin doors by name, and the five write doors under their `data.*` operation names.
+ *
+ * @typedef {import("bonobo-plugin-sdk/convex-api").BonoboConvexApi["plugins_data"]} PluginDoors
+ * @typedef {{ append: PluginDoors["user_append_document"], put: PluginDoors["user_put_document"], remove: PluginDoors["user_remove_document"], putOwned: PluginDoors["user_put_owned_document"], removeOwned: PluginDoors["user_remove_owned_document"] }} UserWriteDoors
  */
 
 /**
@@ -902,12 +918,12 @@ function create_documents_window(deps) {
  *
  * @param {{
  *   start_watch: DataStartWatch,
- *   start_recent_watch: (queryArgs: Record<string, unknown>, onResult: (outcome: { value: { docs: import("bonobo-plugin-sdk").BonoboPublicDoc[], truncated: boolean } | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
- *   start_changes_watch: (queryArgs: Record<string, unknown>, onResult: (outcome: { value: { docs: import("bonobo-plugin-sdk").BonoboPublicDoc[], truncated: boolean } | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
- *   run_user_write: (op: "append" | "put" | "remove" | "putOwned" | "removeOwned", fields: Record<string, unknown>) => Promise<unknown>,
+ *   start_recent_watch: (queryArgs: import("convex/server").FunctionArgs<PluginDoors["watch_recent"]>, onResult: (outcome: { value: { docs: import("bonobo-plugin-sdk").BonoboPublicDoc[], truncated: boolean } | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
+ *   start_changes_watch: (queryArgs: import("convex/server").FunctionArgs<PluginDoors["watch_changes"]>, onResult: (outcome: { value: { docs: import("bonobo-plugin-sdk").BonoboPublicDoc[], truncated: boolean } | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
+ *   run_user_write: <Op extends keyof UserWriteDoors>(op: Op, fields: import("convex/server").FunctionArgs<UserWriteDoors[Op]>) => Promise<unknown>,
  *   resolve_member_display: (userIds: string[]) => Promise<{ members: Record<string, string | null> } | null>,
  *   list_members: (limit: number, cursor: string | null) => Promise<{ members: import("bonobo-plugin-sdk/frontend").BonoboUiMember[], cursor: string | null } | { refusal: string } | null>,
- *   run_manage_scope: (action: Record<string, unknown>) => Promise<unknown>,
+ *   run_manage_scope: (action: import("convex/server").FunctionArgs<PluginDoors["user_manage_scope"]>["action"]) => Promise<unknown>,
  *   list_scope_principals: (scopeId: string) => Promise<unknown>,
  *   start_my_scopes_watch: (onResult: (outcome: { value: import("bonobo-plugin-sdk/frontend").BonoboUiScope[] | null } | { queryError: unknown }) => void) => { dispose: () => void } | null,
  *   session_expired: () => boolean,
@@ -1199,7 +1215,7 @@ function bonobo_ui_create_data_api(deps) {
 					collection: opts.collection,
 					...(opts.keyPrefix === undefined ? {} : { keyPrefix: opts.keyPrefix }),
 					value: opts.value,
-					...(opts.clientRequestId === undefined ? {} : { clientRequestId: opts.clientRequestId }),
+					clientRequestId: opts.clientRequestId,
 				})
 			);
 		},
@@ -1248,8 +1264,9 @@ function bonobo_ui_create_data_api(deps) {
 	 * call (network loss, a payload the Convex client cannot serialize) resolves the stable
 	 * `unavailable` `_nay`; the real cause stays in the log.
 	 *
-	 * @param {"append" | "put" | "remove" | "putOwned" | "removeOwned"} op
-	 * @param {Record<string, unknown>} fields
+	 * @template {keyof UserWriteDoors} Op
+	 * @param {Op} op
+	 * @param {import("convex/server").FunctionArgs<UserWriteDoors[Op]>} fields
 	 */
 	function run_write(op, fields) {
 		return Promise.resolve()
@@ -1322,7 +1339,7 @@ function bonobo_ui_create_data_api(deps) {
 	 * Runs one scope change. Same resolve-never-reject contract as a data write, with a named
 	 * unavailable fallback so the page can tell an uncertain call from a backend refusal.
 	 *
-	 * @param {Record<string, unknown>} action
+	 * @param {import("convex/server").FunctionArgs<PluginDoors["user_manage_scope"]>["action"]} action
 	 * @returns {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiScopeResult>}
 	 */
 	function run_scope(action) {
@@ -1351,18 +1368,23 @@ function bonobo_ui_create_data_api(deps) {
 				scopeId: opts.scopeId,
 				collections: opts.collections,
 				keyPrefix: opts.keyPrefix,
-				principals: opts.principals,
+				principals: opts.principals.map((principal) => ({ userId: as_user_id(principal.userId), level: principal.level })),
 				document: opts.document,
 			});
 		},
 		setPrincipal(opts) {
-			return run_scope({ kind: "set_principal", scopeId: opts.scopeId, userId: opts.userId, level: opts.level });
+			return run_scope({
+				kind: "set_principal",
+				scopeId: opts.scopeId,
+				userId: as_user_id(opts.userId),
+				level: opts.level,
+			});
 		},
 		removePrincipal(opts) {
 			return run_scope({
 				kind: "remove_principal",
 				scopeId: opts.scopeId,
-				userId: opts.userId,
+				userId: as_user_id(opts.userId),
 				...(opts.expectedPrincipalCount === undefined ? {} : { expectedPrincipalCount: opts.expectedPrincipalCount }),
 			});
 		},
@@ -1419,11 +1441,21 @@ function bonobo_ui_create_data_api(deps) {
  * @param {import("convex/browser").ConvexClient} convexClient
  */
 function create_convex_data_deps(convexClient) {
+	const doors = bonobo_convex_api.plugins_data;
+	/** @type {UserWriteDoors} */
+	const userWriteDoors = {
+		append: doors.user_append_document,
+		put: doors.user_put_document,
+		remove: doors.user_remove_document,
+		putOwned: doors.user_put_owned_document,
+		removeOwned: doors.user_remove_owned_document,
+	};
+
 	/** @type {DataStartWatch} */
 	const start_watch = (queryArgs, bounds, onResult) => {
 		try {
 			const unsubscribe = convexClient.onUpdate(
-				anyApi.plugins_data.watch_documents,
+				doors.watch_documents,
 				{
 					...queryArgs,
 					...(bounds?.keyStartExclusive === undefined ? {} : { keyStartExclusive: bounds.keyStartExclusive }),
@@ -1441,13 +1473,13 @@ function create_convex_data_deps(convexClient) {
 	return {
 		start_watch,
 		/**
-		 * @param {Record<string, unknown>} queryArgs
+		 * @param {import("convex/server").FunctionArgs<PluginDoors["watch_recent"]>} queryArgs
 		 * @param {(outcome: { value: any } | { queryError: unknown }) => void} onResult
 		 */
 		start_recent_watch: (queryArgs, onResult) => {
 			try {
 				const unsubscribe = convexClient.onUpdate(
-					anyApi.plugins_data.watch_recent,
+					doors.watch_recent,
 					queryArgs,
 					(value) => onResult({ value }),
 					(queryError) => onResult({ queryError }),
@@ -1458,13 +1490,13 @@ function create_convex_data_deps(convexClient) {
 			}
 		},
 		/**
-		 * @param {Record<string, unknown>} queryArgs
+		 * @param {import("convex/server").FunctionArgs<PluginDoors["watch_changes"]>} queryArgs
 		 * @param {(outcome: { value: any } | { queryError: unknown }) => void} onResult
 		 */
 		start_changes_watch: (queryArgs, onResult) => {
 			try {
 				const unsubscribe = convexClient.onUpdate(
-					anyApi.plugins_data.watch_changes,
+					doors.watch_changes,
 					queryArgs,
 					(value) => onResult({ value }),
 					(queryError) => onResult({ queryError }),
@@ -1475,39 +1507,28 @@ function create_convex_data_deps(convexClient) {
 			}
 		},
 		/**
-		 * @param {"append" | "put" | "remove" | "putOwned" | "removeOwned"} op
-		 * @param {Record<string, unknown>} fields
+		 * @template {keyof UserWriteDoors} Op
+		 * @param {Op} op
+		 * @param {import("convex/server").FunctionArgs<UserWriteDoors[Op]>} fields
 		 */
-		run_user_write: (op, fields) => {
-			switch (op) {
-				case "append":
-					return convexClient.mutation(anyApi.plugins_data.user_append_document, fields);
-				case "put":
-					return convexClient.mutation(anyApi.plugins_data.user_put_document, fields);
-				case "remove":
-					return convexClient.mutation(anyApi.plugins_data.user_remove_document, fields);
-				case "putOwned":
-					return convexClient.mutation(anyApi.plugins_data.user_put_owned_document, fields);
-				case "removeOwned":
-					return convexClient.mutation(anyApi.plugins_data.user_remove_owned_document, fields);
-			}
-		},
+		run_user_write: (op, fields) => convexClient.mutation(userWriteDoors[op], fields),
 		/** @param {string[]} userIds */
-		resolve_member_display: (userIds) => convexClient.query(anyApi.plugins_data.resolve_member_display, { userIds }),
+		resolve_member_display: (userIds) =>
+			convexClient.query(doors.resolve_member_display, { userIds: userIds.map(as_user_id) }),
 		/**
 		 * @param {number} limit
 		 * @param {string | null} cursor
 		 */
-		list_members: (limit, cursor) => convexClient.query(anyApi.plugins_data.list_members, { limit, cursor }),
-		/** @param {Record<string, unknown>} action */
-		run_manage_scope: (action) => convexClient.mutation(anyApi.plugins_data.user_manage_scope, { action }),
+		list_members: (limit, cursor) => convexClient.query(doors.list_members, { limit, cursor }),
+		/** @param {import("convex/server").FunctionArgs<PluginDoors["user_manage_scope"]>["action"]} action */
+		run_manage_scope: (action) => convexClient.mutation(doors.user_manage_scope, { action }),
 		/** @param {string} scopeId */
-		list_scope_principals: (scopeId) => convexClient.query(anyApi.plugins_data.watch_scope_principals, { scopeId }),
+		list_scope_principals: (scopeId) => convexClient.query(doors.watch_scope_principals, { scopeId }),
 		/** @param {(outcome: { value: any } | { queryError: unknown }) => void} onResult */
 		start_my_scopes_watch: (onResult) => {
 			try {
 				const unsubscribe = convexClient.onUpdate(
-					anyApi.plugins_data.watch_my_scopes,
+					doors.watch_my_scopes,
 					{},
 					(value) => onResult({ value }),
 					(queryError) => onResult({ queryError }),
@@ -1518,6 +1539,17 @@ function create_convex_data_deps(convexClient) {
 			}
 		},
 	};
+}
+
+/**
+ * The SDK hands a page user ids as plain strings, and the doors type them as ids of the app's
+ * `users` table. The cast changes nothing at runtime.
+ *
+ * @param {string} userId
+ * @returns {import("convex/values").GenericId<"users">}
+ */
+function as_user_id(userId) {
+	return /** @type {import("convex/values").GenericId<"users">} */ (userId);
 }
 
 /**
@@ -1954,6 +1986,8 @@ export async function bonobo_ui_connect() {
 					data,
 					members,
 					scopes,
+					convex: convexClient,
+					api: bonobo_convex_api,
 					theme: {
 						current: () => theme,
 						subscribe(onChange) {

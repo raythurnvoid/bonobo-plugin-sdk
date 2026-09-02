@@ -1,4 +1,7 @@
+import type { ConvexClient } from "convex/browser";
+import type { GenericId } from "convex/values";
 import type { BonoboPublicDoc } from "bonobo-plugin-sdk";
+import type { BonoboConvexApi } from "bonobo-plugin-sdk/convex-api";
 
 /**
  * Sent by the frame to `window.parent` at the exact `parentOrigin` from the URL fragment once the
@@ -518,16 +521,17 @@ export interface BonoboUiFrontendClient {
 			onUpdate: (update: BonoboUiDataWindowUpdate | null, info?: BonoboUiWatchDeathInfo) => void,
 		): { unsubscribe: () => void; loadOlder: () => void };
 		/**
-		 * Creates a document under a server-generated key starting with `keyPrefix`. Pass the same
-		 * `clientRequestId` when retrying so a replayed append answers the stored key instead of
-		 * writing twice. The new document is member-owned (`ownership: "owned"`): only the appending
-		 * member may later change or delete it through interactive writers.
+		 * Creates a document under a server-generated key starting with `keyPrefix`. The store
+		 * requires `clientRequestId`: it is the idempotency key, so pass the same one when retrying
+		 * and a replayed append answers the stored key instead of writing twice. The new document
+		 * is member-owned (`ownership: "owned"`): only the appending member may later change or
+		 * delete it through interactive writers.
 		 */
 		append(opts: {
 			collection: string;
 			keyPrefix?: string;
 			value: object;
-			clientRequestId?: string;
+			clientRequestId: string;
 		}): Promise<BonoboUiDataAppendResult>;
 		/**
 		 * Writes `value` under exactly `key`, creating or replacing the document. With
@@ -731,7 +735,36 @@ export interface BonoboUiFrontendClient {
 		 */
 		watchMine(onUpdate: (scopes: BonoboUiScope[] | null, info?: BonoboUiWatchDeathInfo) => void): () => void;
 	};
+	/**
+	 * The frame's own authenticated Convex client, the one `data`, `members` and `scopes` run on.
+	 * Call it with a reference from `api` when those wrappers do not offer what the page needs,
+	 * for example a one-document read that should not spend a subscription slot.
+	 *
+	 * What a direct call gives up: nothing is counted against the 16 subscription slots or the 100
+	 * server subscriptions (they are counters inside this SDK, and the server enforces no per-frame
+	 * cap); no `null` is turned into a named death reason, so a refused read is the door's own
+	 * answer (`null`), a refused write is its `_nay`, and a failed call rejects or reaches `onError`
+	 * with no retry and no `unavailable` fallback. The client's authentication is the plugin-session
+	 * JWT. Only the doors in `api` resolve it to a member; every other function of the app sees no
+	 * user behind it, so a function that needs a member answers `null` or `Unauthenticated`. The SDK
+	 * closes the client on `pagehide`.
+	 */
+	convex: ConvexClient;
+	/**
+	 * Typed references to the plugin doors, generated from the app into `convex-api.d.ts`
+	 * (`bonobo-plugin-sdk/convex-api`). With `convex` above, the arguments and the delivered
+	 * value of every call are checked against the app's own types.
+	 */
+	api: BonoboConvexApi;
 }
+
+/**
+ * The id of a member as the plugin doors type it: a `users` table id, a branded string. Every id
+ * the SDK hands out (`context.userId`, a member's `userId`, a principal's `userId`) is a plain
+ * string, so cast it with `as BonoboUserId` before passing it to a door through `convex`. A plugin
+ * has no `convex` package of its own to import the id type from, which is why it is exported here.
+ */
+export type BonoboUserId = GenericId<"users">;
 
 /**
  * One member of a scope. `manage` may change who else is in it; `member` may not.
