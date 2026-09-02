@@ -55,7 +55,7 @@ const NONCE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
  * properties. This comes over postMessage, so every field is checked before the page can see it.
  *
  * @param {unknown} value
- * @returns {import("bonobo-plugin-sdk/frontend").BonoboUiTheme | null}
+ * @returns {import("bonobo-plugin-sdk/frontend").BonoboTheme | null}
  */
 function read_theme(value) {
 	if (typeof value !== "object" || value === null) {
@@ -77,7 +77,7 @@ function read_theme(value) {
 		tokens[name] = tokenValue;
 	}
 
-	return /** @type {import("bonobo-plugin-sdk/frontend").BonoboUiTheme} */ ({ mode: candidate.mode, tokens });
+	return /** @type {import("bonobo-plugin-sdk/frontend").BonoboTheme} */ ({ mode: candidate.mode, tokens });
 }
 
 /**
@@ -88,7 +88,7 @@ function read_theme(value) {
  * app's `light` / `dark` class on the root too. A plugin stylesheet can then use
  * `var(--color-base-1-03)` and `.dark &` exactly as the app does, and no plugin has to copy this loop.
  *
- * @param {import("bonobo-plugin-sdk/frontend").BonoboUiTheme} theme
+ * @param {import("bonobo-plugin-sdk/frontend").BonoboTheme} theme
  */
 function apply_theme(theme) {
 	const root = document.documentElement;
@@ -250,9 +250,9 @@ function read_bridge_bootstrap() {
  * secrets API. A page that needs a secret calls its own backend through `backend.invoke`; the
  * backend run reads the secret with `env.BONOBO.secrets.get(name)`.
  *
- * @returns {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient>}
+ * @returns {Promise<import("bonobo-plugin-sdk/frontend").BonoboClient>}
  */
-export async function bonobo_ui_connect() {
+export async function bonobo_connect() {
 	const { parentOrigin, nonce } = read_bridge_bootstrap();
 
 	// Token state — set by `bonobo:init`, updated by `bonobo:token` and the JWT exchange.
@@ -269,10 +269,10 @@ export async function bonobo_ui_connect() {
 	 * host's theme. Each one is painted onto the document as it arrives. It stays null when the host
 	 * sends none, and then the document keeps the page's own colours.
 	 *
-	 * @type {import("bonobo-plugin-sdk/frontend").BonoboUiTheme | null}
+	 * @type {import("bonobo-plugin-sdk/frontend").BonoboTheme | null}
 	 */
 	let theme = null;
-	/** @type {Set<(theme: import("bonobo-plugin-sdk/frontend").BonoboUiTheme) => void>} */
+	/** @type {Set<(theme: import("bonobo-plugin-sdk/frontend").BonoboTheme) => void>} */
 	const themeSubscribers = new Set();
 
 	/** @type {Map<string, { resolve: (token: string) => void, reject: (error: Error) => void, timeout: ReturnType<typeof setTimeout> }>} */
@@ -390,7 +390,7 @@ export async function bonobo_ui_connect() {
 		return response.json();
 	}
 
-	/** @type {import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient["backend"]} */
+	/** @type {import("bonobo-plugin-sdk/frontend").BonoboClient["backend"]} */
 	const backend = {
 		invoke(opts) {
 			return fetchJson("/api/v1/plugin-backend/invoke", {
@@ -552,7 +552,7 @@ export async function bonobo_ui_connect() {
 		}
 	}
 
-	/** @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboUiFrontendClient>} */
+	/** @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboClient>} */
 	const client_promise = new Promise((resolve) => {
 		let initialized = false;
 		/** @type {ReturnType<typeof setInterval> | undefined} */

@@ -220,9 +220,9 @@ A plugin frontend is trusted with the token and every datum its accepted permiss
 | host → frame | `bonobo:token`                 | `nonce`, `requestId`, `token`, `tokenExpiresAt`, `jwt`, `jwtExpiresAt` (both optional)                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | host → frame | `bonobo:token-error`           | `nonce`, `requestId`, `message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
-`bonobo_ui_connect` (from `bonobo-plugin-sdk/frontend`) implements the frame side. Before connecting, it requires exactly one canonical HTTP(S) `parentOrigin` and one UUIDv4 `nonce` in the URL fragment. It sends ready with that nonce to the exact parent origin and retries until init or document unload. The host starts minting the session while the iframe assets load, but it does not send the token until this ready message proves the current frame loaded the bridge. Every host message must come from `window.parent`, that exact origin, and the matching nonce. The host posts only to the concrete Convex asset origin. The host owns the startup deadline.
+`bonobo_connect` (from `bonobo-plugin-sdk/frontend`) implements the frame side. Before connecting, it requires exactly one canonical HTTP(S) `parentOrigin` and one UUIDv4 `nonce` in the URL fragment. It sends ready with that nonce to the exact parent origin and retries until init or document unload. The host starts minting the session while the iframe assets load, but it does not send the token until this ready message proves the current frame loaded the bridge. Every host message must come from `window.parent`, that exact origin, and the matching nonce. The host posts only to the concrete Convex asset origin. The host owns the startup deadline.
 
-Importing the module does nothing by itself; the frame's entry code must call `bonobo_ui_connect()` once and use the resolved client for everything after. A frame opened outside the host never gets past ready, by design. What the two fragment values are for: `parentOrigin` tells the SDK where to address `postMessage`, so it never sends with `"*"` — it is not authentication of the embedder (CSP `frame-ancestors` on the asset decides who may embed, and only the host's session mint produces a token). The nonce is a conversation id for one mount of one iframe: it proves the ready message came from a document that read this mount's fragment, it lets both sides drop late messages from an earlier mount, and because it sits in the URL a new mount always loads a fresh document. It is visible to the page and is not a secret.
+Importing the module does nothing by itself; the frame's entry code must call `bonobo_connect()` once and use the resolved client for everything after. A frame opened outside the host never gets past ready, by design. What the two fragment values are for: `parentOrigin` tells the SDK where to address `postMessage`, so it never sends with `"*"` — it is not authentication of the embedder (CSP `frame-ancestors` on the asset decides who may embed, and only the host's session mint produces a token). The nonce is a conversation id for one mount of one iframe: it proves the ready message came from a document that read this mount's fragment, it lets both sides drop late messages from an earlier mount, and because it sits in the URL a new mount always loads a fresh document. It is visible to the page and is not a secret.
 
 Token lifetimes, so plugin code never handles refresh itself: the session token lives 30 minutes, `getToken` refreshes it through the host when it is within 60 seconds of expiry, and a `fetchJson` call that meets a 401 refreshes once and retries once. A refresh rotates the token on the same session while it lives; when the session is already gone (the device slept past its expiry), the host mints a new session for the same frame and answers the refresh with its token, so the page keeps its state and its watches. The plugin-session JWT arrives beside the token (`jwt`, `jwtExpiresAt`) and expires with it; a refresh answers with both, and the Convex client's own ask for a new JWT shortly before expiry is what triggers that refresh. The session record on the host is the kill switch: revoking it (unmount, navigation away, uninstall, upgrade) ends every live subscription at once. Secrets never reach the frame — the token has no secrets scope and the SDK has no secrets API; a frame that needs one calls its backend through `backend.invoke`, and the backend reads it with `env.BONOBO.secrets.get`.
 
@@ -243,7 +243,7 @@ Hand the client to `ConvexProvider` once, at the root:
 ```tsx
 import { ConvexProvider } from "convex/react";
 
-const client = await bonobo_ui_connect();
+const client = await bonobo_connect();
 root.render(
 	<ConvexProvider client={client.convex}>
 		<App client={client} />
@@ -354,7 +354,7 @@ With the `plugin.backend.invoke` capability, a frame may run the plugin's backen
 }
 ```
 
-`client.backend.invoke({ endpoint, input?, serializationKey? })` names the endpoint by its `id`, POSTs `/api/v1/plugin-backend/invoke` on the UI token, and resolves — never rejects — with `BonoboUiBackendInvokeResult`: `{ _yay: { runId, pluginStatus, output, outputTruncated } }` or `{ _nay: { name, message, retryAfterMs? } }`. The backend receives a `BonoboInvokeRequestedEvent` at the endpoint's declared path — the normal run envelope plus `invoke: { endpointId, serializationKey, input }` — and answers with its own response body: `pluginStatus` is that response's status, and a non-2xx `pluginStatus` still resolves `_yay`, because the plugin did answer. The whole invoke request body may be at most 32 KiB.
+`client.backend.invoke({ endpoint, input?, serializationKey? })` names the endpoint by its `id`, POSTs `/api/v1/plugin-backend/invoke` on the UI token, and resolves — never rejects — with `BonoboBackendInvokeResult`: `{ _yay: { runId, pluginStatus, output, outputTruncated } }` or `{ _nay: { name, message, retryAfterMs? } }`. The backend receives a `BonoboInvokeRequestedEvent` at the endpoint's declared path — the normal run envelope plus `invoke: { endpointId, serializationKey, input }` — and answers with its own response body: `pluginStatus` is that response's status, and a non-2xx `pluginStatus` still resolves `_yay`, because the plugin did answer. The whole invoke request body may be at most 32 KiB.
 
 Three rules for a plugin that uses it:
 
@@ -367,9 +367,9 @@ Three rules for a plugin that uses it:
 ### Frontend page example
 
 ```js
-import { bonobo_ui_connect } from "bonobo-plugin-sdk/frontend";
+import { bonobo_connect } from "bonobo-plugin-sdk/frontend";
 
-const client = await bonobo_ui_connect();
+const client = await bonobo_connect();
 // context is a union — narrow on kind before using kind-specific fields.
 if (client.context.kind === "page") {
 	document.title = client.context.pageTitle;

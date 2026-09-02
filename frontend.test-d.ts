@@ -1,5 +1,5 @@
 /**
- * Type-level checks of the Convex surface a plugin gets from `bonobo_ui_connect`.
+ * Type-level checks of the Convex surface a plugin gets from `bonobo_connect`.
  *
  * `pnpm run typecheck` compiles this file with `--strict`, the way a plugin compiles. Vitest never
  * runs it: typecheck mode is off in `vitest.config.ts`, and the run glob does not match
@@ -8,9 +8,9 @@
  * accepts any error on its line, so keep each of those lines wrong in exactly one way.
  */
 import { usePaginatedQuery, useQuery } from "convex/react";
-import type { BonoboUiFrontendClient, BonoboUserId } from "bonobo-plugin-sdk/frontend";
+import type { BonoboClient, BonoboUserId } from "bonobo-plugin-sdk/frontend";
 
-declare const client: BonoboUiFrontendClient;
+declare const client: BonoboClient;
 
 export function hooks_type_check() {
 	// The paginated door compiles with the hook as is: no cast, and the item type is the app's

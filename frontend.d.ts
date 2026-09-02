@@ -5,27 +5,27 @@ import type { BonoboConvexApi } from "bonobo-plugin-sdk/convex-api";
 /**
  * Sent by the frame to `window.parent` at the exact `parentOrigin` from the URL fragment once the
  * connect listener is installed. It tells the host this frame is ready to receive
- * {@link BonoboUiInitMessage} and proves it read the frame's bootstrap nonce.
+ * {@link BonoboInitMessage} and proves it read the frame's bootstrap nonce.
  */
-export interface BonoboUiReadyMessage {
+export interface BonoboReadyMessage {
 	type: "bonobo:ready";
 	nonce: string;
 }
 
 /**
  * Sent by the frame to `window.parent` to ask for a fresh session token. The host answers with a
- * {@link BonoboUiTokenMessage} or {@link BonoboUiTokenErrorMessage} echoing `requestId`.
+ * {@link BonoboTokenMessage} or {@link BonoboTokenErrorMessage} echoing `requestId`.
  */
-export interface BonoboUiTokenRefreshRequestMessage {
+export interface BonoboTokenRefreshRequestMessage {
 	type: "bonobo:token-refresh-request";
 	nonce: string;
 	requestId: string;
 }
 
 /**
- * `context` of {@link BonoboUiInitMessage} when a plugin page is embedded.
+ * `context` of {@link BonoboInitMessage} when a plugin page is embedded.
  */
-export interface BonoboUiPageContext {
+export interface BonoboPageContext {
 	/**
 	 * Tells the two context shapes apart. A page opens from the sidebar or by URL, not from a file.
 	 */
@@ -61,10 +61,10 @@ export interface BonoboUiPageContext {
 }
 
 /**
- * `context` of {@link BonoboUiInitMessage} when a plugin file view is embedded — the host opened
+ * `context` of {@link BonoboInitMessage} when a plugin file view is embedded — the host opened
  * this frame for one stored file whose content type matched the view's declared list.
  */
-export interface BonoboUiFileViewContext {
+export interface BonoboFileViewContext {
 	/**
 	 * Tells the two context shapes apart. A file view opens as a tab on one stored file in the
 	 * Files page.
@@ -124,9 +124,9 @@ export interface BonoboUiFileViewContext {
 }
 
 /**
- * `context` of {@link BonoboUiInitMessage} — discriminated by `kind`.
+ * `context` of {@link BonoboInitMessage} — discriminated by `kind`.
  */
-export type BonoboUiContext = BonoboUiPageContext | BonoboUiFileViewContext;
+export type BonoboContext = BonoboPageContext | BonoboFileViewContext;
 
 /**
  * The host's theme, as the plugin frame sees it. `mode` says which of the two the member is in, so
@@ -137,20 +137,20 @@ export type BonoboUiContext = BonoboUiPageContext | BonoboUiFileViewContext;
  * value is a finished CSS colour. The SDK writes every entry onto the frame's root element, so a
  * stylesheet can use `var(--color-base-1-03)` exactly as the app does.
  */
-export interface BonoboUiTheme {
+export interface BonoboTheme {
 	mode: "light" | "dark";
 	tokens: Record<string, string>;
 }
 
 /**
- * The host's answer to {@link BonoboUiReadyMessage}: it delivers the short-lived scoped session
+ * The host's answer to {@link BonoboReadyMessage}: it delivers the short-lived scoped session
  * token (`plu_...`) with its plugin-session JWT, the Convex deployment URL the frame's own client
  * connects to, and the embedding context. The init is trusted only from `window.parent`, the
  * exact `parentOrigin` from the URL fragment, and the matching frame nonce. The token and the JWT
  * travel over postMessage only and are never placed in a URL. `tokenExpiresAt` and
  * `jwtExpiresAt` are Unix epoch milliseconds.
  */
-export interface BonoboUiInitMessage {
+export interface BonoboInitMessage {
 	type: "bonobo:init";
 	nonce: string;
 	apiOrigin: string;
@@ -169,23 +169,23 @@ export interface BonoboUiInitMessage {
 	 */
 	jwt?: string;
 	jwtExpiresAt?: number;
-	context: BonoboUiContext;
+	context: BonoboContext;
 	/**
 	 * The host theme at startup. A host may send none; then `client.theme.current()` stays `null`,
 	 * nothing is written onto the document, and the page keeps its own colours.
 	 */
-	theme?: BonoboUiTheme;
+	theme?: BonoboTheme;
 }
 
 /**
- * The host's success answer to {@link BonoboUiTokenRefreshRequestMessage} — a fresh session
+ * The host's success answer to {@link BonoboTokenRefreshRequestMessage} — a fresh session
  * token with its plugin-session JWT. While the session lives, the refresh rotates the token on
  * that session and extends its life on the server. When the session is already gone (the device
  * slept past its expiry), the token belongs to a new session the host minted for this same frame;
  * the page does nothing different. `tokenExpiresAt` and `jwtExpiresAt` are Unix epoch
  * milliseconds.
  */
-export interface BonoboUiTokenMessage {
+export interface BonoboTokenMessage {
 	type: "bonobo:token";
 	nonce: string;
 	requestId: string;
@@ -203,16 +203,16 @@ export interface BonoboUiTokenMessage {
  * The host's unprompted message when the member switches the app's theme. The plugin frame is a
  * separate document, so it never sees the host's own theme class change.
  */
-export interface BonoboUiThemeMessage {
+export interface BonoboThemeMessage {
 	type: "bonobo:theme";
 	nonce: string;
-	theme: BonoboUiTheme;
+	theme: BonoboTheme;
 }
 
 /**
- * The host's failure answer to {@link BonoboUiTokenRefreshRequestMessage}.
+ * The host's failure answer to {@link BonoboTokenRefreshRequestMessage}.
  */
-export interface BonoboUiTokenErrorMessage {
+export interface BonoboTokenErrorMessage {
 	type: "bonobo:token-error";
 	nonce: string;
 	requestId: string;
@@ -220,17 +220,17 @@ export interface BonoboUiTokenErrorMessage {
 }
 
 /**
- * The connected plugin frontend client resolved by {@link bonobo_ui_connect}, for plugin pages
+ * The connected plugin frontend client resolved by {@link bonobo_connect}, for plugin pages
  * and plugin file views alike. With the `workspace.files.read` capability the UI token carries
  * the `files:list`, `files:read`, and `files:download` scopes for `POST /api/v1/files/list`,
  * `POST /api/v1/files/read`, and `POST /api/v1/files/download-urls`. UI tokens are always
  * rejected on `/api/v1/files/write`.
  */
-export interface BonoboUiFrontendClient {
+export interface BonoboClient {
 	/**
-	 * The {@link BonoboUiInitMessage} context. Narrow on `context.kind` before using kind-specific fields.
+	 * The {@link BonoboInitMessage} context. Narrow on `context.kind` before using kind-specific fields.
 	 */
-	context: BonoboUiContext;
+	context: BonoboContext;
 	/**
 	 * Origin of the public host API — `fetchJson` prefixes it onto `path`.
 	 */
@@ -241,9 +241,9 @@ export interface BonoboUiFrontendClient {
 	 */
 	getToken(): Promise<string>;
 	/**
-	 * Asks the host for a fresh session token ({@link BonoboUiTokenRefreshRequestMessage}).
+	 * Asks the host for a fresh session token ({@link BonoboTokenRefreshRequestMessage}).
 	 * Concurrent callers share one in-flight request. Rejects when the host answers with
-	 * {@link BonoboUiTokenErrorMessage} or does not answer within 10 seconds.
+	 * {@link BonoboTokenErrorMessage} or does not answer within 10 seconds.
 	 */
 	refreshToken(): Promise<string>;
 	/**
@@ -279,7 +279,7 @@ export interface BonoboUiFrontendClient {
 		 * Runs the plugin's backend synchronously through the host's
 		 * `/api/v1/plugin-backend/invoke` route and resolves with the backend's relayed response.
 		 * The call never rejects — every refusal resolves `_nay`
-		 * ({@link BonoboUiBackendInvokeResult}).
+		 * ({@link BonoboBackendInvokeResult}).
 		 *
 		 * The backend's `fetch` receives `POST https://plugin.local<endpoint.path>` with the
 		 * event envelope in the body (`event: "ui.invoke.requested"`); `input` travels inside that
@@ -298,7 +298,7 @@ export interface BonoboUiFrontendClient {
 		 * endpoint declared `serialization: "caller-key"`, where the key is required). A concurrent
 		 * second invoke resolves `_nay` `busy` with `retryAfterMs`; wait and call again.
 		 */
-		invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboUiBackendInvokeResult>;
+		invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboBackendInvokeResult>;
 	};
 	/**
 	 * The host's theme. The SDK has already applied it to this document: every token sits on
@@ -311,12 +311,12 @@ export interface BonoboUiFrontendClient {
 		/**
 		 * The theme the host last sent, or `null` when the host sent none.
 		 */
-		current(): BonoboUiTheme | null;
+		current(): BonoboTheme | null;
 		/**
 		 * Calls `onChange` on every later theme the host sends, after the SDK has applied it to the
 		 * document, and never for the current one. Returns the unsubscribe function.
 		 */
-		subscribe(onChange: (theme: BonoboUiTheme) => void): () => void;
+		subscribe(onChange: (theme: BonoboTheme) => void): () => void;
 	};
 	/**
 	 * The frame's own authenticated Convex client. It is a `ConvexReactClient`, so a page can hand
@@ -391,14 +391,14 @@ export type BonoboUserId = GenericId<"users">;
  * outcome is unknown — the run may or may not have happened, which is why store writes must be
  * safe to repeat.
  */
-export type BonoboUiBackendInvokeResult =
+export type BonoboBackendInvokeResult =
 	| { _yay: { runId: string; pluginStatus: number; output: string; outputTruncated: boolean } }
 	| { _nay: { name: string; message: string; retryAfterMs?: number } };
 
 /**
  * Connects the frame to the embedding host app. It installs one shared `message` listener (for
- * init and token responses), posts {@link BonoboUiReadyMessage} to `window.parent`, and resolves
- * with the client when the host's {@link BonoboUiInitMessage} arrives.
+ * init and token responses), posts {@link BonoboReadyMessage} to `window.parent`, and resolves
+ * with the client when the host's {@link BonoboInitMessage} arrives.
  * `bonobo:init` messages after the first are ignored.
  *
  * The URL fragment must contain one canonical HTTP(S) `parentOrigin` and one UUIDv4
@@ -420,4 +420,4 @@ export type BonoboUiBackendInvokeResult =
  * Every incoming message requires that origin, `window.parent`, and the fragment nonce;
  * everything else is silently ignored.
  */
-export function bonobo_ui_connect(): Promise<BonoboUiFrontendClient>;
+export function bonobo_connect(): Promise<BonoboClient>;

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getFunctionName } from "convex/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { bonobo_ui_connect } from "./frontend.js";
+import { bonobo_connect } from "./frontend.js";
 
 const HOST_ORIGIN = "https://host.test";
 const NONCE = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -137,7 +137,7 @@ function answer_refresh(
 
 async function connect_client() {
 	spy_on_post_message();
-	const clientPromise = bonobo_ui_connect();
+	const clientPromise = bonobo_connect();
 	post_from_host(make_init());
 	return await clientPromise;
 }
@@ -154,41 +154,41 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe("bonobo_ui_connect", () => {
+describe("bonobo_connect", () => {
 	test("rejects a missing or malformed host bridge fragment", async () => {
 		window.history.replaceState(null, "", "/");
-		await expect(bonobo_ui_connect()).rejects.toThrow("Missing host bridge fragment");
+		await expect(bonobo_connect()).rejects.toThrow("Missing host bridge fragment");
 
 		// A plugin that ships only file views renders this rejection verbatim to the member (the
 		// video player's `main.tsx` does exactly that). A member in a file view is not on a page,
 		// so the wording must name the frame instead. Pin the rule, not the sentence: re-wording
 		// is fine, calling the frame a page is not.
 		let bridgeMessage = "";
-		await bonobo_ui_connect().catch((error: unknown) => {
+		await bonobo_connect().catch((error: unknown) => {
 			bridgeMessage = error instanceof Error ? error.message : String(error);
 		});
 		expect(bridgeMessage).not.toMatch(/page/i);
 
 		set_bridge_fragment("ftp://host.test");
-		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge parent origin");
+		await expect(bonobo_connect()).rejects.toThrow("Invalid host bridge parent origin");
 
 		set_bridge_fragment("https://host.test/");
-		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge parent origin");
+		await expect(bonobo_connect()).rejects.toThrow("Invalid host bridge parent origin");
 
 		set_bridge_fragment(HOST_ORIGIN, "not-a-uuid");
-		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge nonce");
+		await expect(bonobo_connect()).rejects.toThrow("Invalid host bridge nonce");
 
 		window.history.replaceState(
 			null,
 			"",
 			`/#${new URLSearchParams({ parentOrigin: HOST_ORIGIN, nonce: NONCE, extra: "value" })}`,
 		);
-		await expect(bonobo_ui_connect()).rejects.toThrow("Invalid host bridge fragment");
+		await expect(bonobo_connect()).rejects.toThrow("Invalid host bridge fragment");
 	});
 
 	test("sends nonce-bound ready to the exact parent and accepts only its matching init", async () => {
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		expect(postSpy).toHaveBeenCalledWith({ type: "bonobo:ready", nonce: NONCE }, HOST_ORIGIN);
 
 		post_from_host(make_init({ token: "plu_wrong_source" }), HOST_ORIGIN, {} as Window);
@@ -249,7 +249,7 @@ describe("bonobo_ui_connect", () => {
 
 		// The wrappers left in 0.13.0. A plugin reads the doors with the Convex client itself.
 		expect(declaration).not.toMatch(/^\t(data|members|scopes): \{$/m);
-		expect(declaration).not.toMatch(/watchWindow|BonoboUiWatchDeathInfo|BonoboUiScope\b|BonoboUiMember\b/);
+		expect(declaration).not.toMatch(/watchWindow|BonoboWatchDeathInfo|BonoboScope\b|BonoboMember\b/);
 
 		// The generated file is its own export, so a plugin can name the type without the client.
 		const packageJson = JSON.parse(await readFile(join(import.meta.dirname, "package.json"), "utf8")) as {
@@ -266,7 +266,7 @@ describe("bonobo_ui_connect", () => {
 
 	test("accepts a file-view context and rejects contexts with a missing or unknown kind", async () => {
 		spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 
 		post_from_host(make_init({ context: make_file_view_context({ kind: undefined }), token: "plu_no_kind" }));
 		post_from_host(make_init({ context: make_file_view_context({ kind: "backend" }), token: "plu_bad_kind" }));
@@ -296,7 +296,7 @@ describe("bonobo_ui_connect", () => {
 
 	test("requires userId in the init context for both kinds", async () => {
 		spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 
 		post_from_host(make_init({ context: { ...make_init().context, userId: undefined }, token: "plu_no_user" }));
 		post_from_host(
@@ -312,7 +312,7 @@ describe("bonobo_ui_connect", () => {
 	test("keeps retrying ready because the host owns the startup deadline", async () => {
 		vi.useFakeTimers();
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 
 		await vi.advanceTimersByTimeAsync(15_500);
 		expect(
@@ -325,7 +325,7 @@ describe("bonobo_ui_connect", () => {
 
 	test("shares one token refresh across simultaneous 401 responses", async () => {
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init());
 		const client = await clientPromise;
 
@@ -356,7 +356,7 @@ describe("bonobo_ui_connect", () => {
 
 	test("a delayed 401 retries the token another request already refreshed", async () => {
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init());
 		const client = await clientPromise;
 
@@ -394,7 +394,7 @@ describe("bonobo_ui_connect", () => {
 
 	test("throws after the one 401 retry instead of starting another cycle", async () => {
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init());
 		const client = await clientPromise;
 		const fetchMock = vi.fn().mockResolvedValue(new Response("still expired", { status: 401 }));
@@ -411,7 +411,7 @@ describe("bonobo_ui_connect", () => {
 
 	test("shares refresh failure and lets a later request try again", async () => {
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init());
 		const client = await clientPromise;
 
@@ -437,7 +437,7 @@ describe("bonobo_ui_connect", () => {
 
 	test("ignores refresh replies with the wrong source, origin, or nonce", async () => {
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init());
 		const client = await clientPromise;
 		const refresh = client.refreshToken();
@@ -468,7 +468,7 @@ describe("bonobo_ui_connect", () => {
 	test("rejects a refresh that receives no host response and clears the single-flight request", async () => {
 		vi.useFakeTimers();
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init());
 		const client = await clientPromise;
 
@@ -615,7 +615,7 @@ describe("convex session jwt auth", () => {
 	test("a session near expiry is refreshed through the host before the exchange", async () => {
 		const postSpy = spy_on_post_message();
 		spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		// The init token is already inside the 60-second refresh margin.
 		post_from_host(make_init({ tokenExpiresAt: Date.now() + 30_000 }));
 		await clientPromise;
@@ -718,7 +718,7 @@ describe("convex session jwt delivered by the host", () => {
 
 	async function connect_with_jwt(overrides?: Record<string, unknown>) {
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init({ jwt: "jwt_1", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS, ...overrides }));
 		return { client: await clientPromise, postSpy };
 	}
@@ -882,7 +882,7 @@ describe("convex session jwt delivered by the host", () => {
 describe("client.session", () => {
 	test("expiresAt follows the token expiry the host sent last", async () => {
 		const postSpy = spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		const initExpiresAt = Date.now() + 600_000;
 		post_from_host(make_init({ tokenExpiresAt: initExpiresAt }));
 		const client = await clientPromise;
@@ -941,7 +941,7 @@ describe("client.theme", () => {
 
 	test("carries the host theme from init and replaces it on every later switch", async () => {
 		spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init({ theme: HOST_THEME }));
 		const client = await clientPromise;
 
@@ -986,7 +986,7 @@ describe("client.theme", () => {
 
 	test("keeps the last good theme when the host sends something else", async () => {
 		spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init({ theme: HOST_THEME }));
 		const client = await clientPromise;
 		const onChange = vi.fn();
@@ -1018,7 +1018,7 @@ describe("client.theme", () => {
 
 	test("accepts an empty token map and then only switches the class", async () => {
 		spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init({ theme: HOST_THEME }));
 		const client = await clientPromise;
 
@@ -1043,7 +1043,7 @@ describe("client.theme", () => {
 	test("stays null when the theme inside init is malformed", async () => {
 		// The same whole-message rule as later switches: a bad init theme is dropped, not half applied.
 		spy_on_post_message();
-		const clientPromise = bonobo_ui_connect();
+		const clientPromise = bonobo_connect();
 		post_from_host(make_init({ theme: { mode: "dark", tokens: "not a map" } }));
 		const client = await clientPromise;
 		expect(client.theme.current()).toBeNull();
@@ -1157,9 +1157,9 @@ describe("backend.invoke", () => {
 		// skips every `.d.ts`, so the declaration text is the only thing a test can hold.
 		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
 		expect(declaration).toContain(
-			"invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboUiBackendInvokeResult>;",
+			"invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboBackendInvokeResult>;",
 		);
-		const resultType = declaration.match(/export type BonoboUiBackendInvokeResult =[^]*?\};/)?.[0] ?? "";
+		const resultType = declaration.match(/export type BonoboBackendInvokeResult =[^]*?\};/)?.[0] ?? "";
 		expect(resultType).toContain(
 			"{ _yay: { runId: string; pluginStatus: number; output: string; outputTruncated: boolean } }",
 		);
