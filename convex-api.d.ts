@@ -1336,6 +1336,32 @@ export type BonoboConvexApi = {
 			}[];
 			truncated: boolean;
 		} | null, string | undefined>;
+		watch_documents_page: import("convex/server").FunctionReference<"query", "public", {
+			keyPrefix?: string | undefined;
+			keyStartExclusive?: string | undefined;
+			keyEndInclusive?: string | undefined;
+			collection: string;
+			paginationOpts: {
+				id?: number;
+				endCursor?: string | null;
+				maximumRowsRead?: number;
+				maximumBytesRead?: number;
+				numItems: number;
+				cursor: string | null;
+			};
+		}, import("convex/server").PaginationResult<{
+			createdBy: import("convex/values").GenericId<"users">;
+			updatedBy: import("convex/values").GenericId<"users">;
+			updatedAt: number;
+			createdAt: number;
+			value: Record<string, any>;
+			collection: string;
+			key: string;
+			byteSize: number;
+			revision: number;
+			writeMode: "normal" | "versioned";
+			ownership: "shared" | "owned";
+		}>, string | undefined>;
 		watch_recent: import("convex/server").FunctionReference<"query", "public", {
 			scopeId?: string | undefined;
 			order?: "asc" | "desc" | undefined;

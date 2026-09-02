@@ -340,8 +340,8 @@ export interface BonoboActivitiesStartResponse {
 
 /**
  * One document from the plugin's own document store, as every read surface returns it: the
- * `/api/v1/plugin-data/*` read and list routes and the frontend bridge's `data.watch` and
- * `data.watchWindow` updates alike. `revision` grows by one on every accepted write and restarts
+ * `/api/v1/plugin-data/*` read and list routes and the frontend `watch_*` doors alike.
+ * `revision` grows by one on every accepted write and restarts
  * at 1 when a deleted key is created again. `ownership` is `"owned"` when only the member in
  * `createdBy` may change or delete the document through interactive writers; `"shared"` documents
  * follow the normal write rule. `writeMode` is `"versioned"` for documents a service producer
