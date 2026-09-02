@@ -2117,8 +2117,12 @@ describe("client.theme", () => {
 		client.theme.subscribe(onChange);
 
 		// Every field crosses an origin boundary, so a message that fails the check is dropped
-		// whole. Half a theme would paint a page with one wrong colour and no way to notice.
+		// whole. Half a theme would paint a page with one wrong colour and no way to notice. One
+		// message per reject branch: not an object, a bad mode, tokens not an object, a token that
+		// is not a string.
+		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: "light" });
 		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: { mode: "dusk", tokens: {} } });
+		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: { mode: "light", tokens: null } });
 		post_from_host({
 			type: "bonobo:theme",
 			nonce: NONCE,
@@ -2129,15 +2133,43 @@ describe("client.theme", () => {
 
 		expect(onChange).not.toHaveBeenCalled();
 		expect(client.theme.current()).toEqual(HOST_THEME);
-		// Nothing reached the document either: the dropped light theme left the dark class alone.
+		// Nothing reached the document either: the dropped light themes left the dark class alone,
+		// and the `7` was never written over the real value.
 		expect(document.documentElement.classList.contains("dark")).toBe(true);
 		expect(document.documentElement.classList.contains("light")).toBe(false);
+		expect(document.documentElement.style.getPropertyValue("--color-fg-12")).toBe("oklch(0.95 0.01 81)");
+	});
+
+	test("accepts an empty token map and then only switches the class", async () => {
+		spy_on_post_message();
+		const clientPromise = bonobo_ui_connect();
+		post_from_host(make_init({ theme: HOST_THEME }));
+		const client = await clientPromise;
+
+		// An empty map is a well-formed theme, not a malformed one. The SDK writes what arrives and
+		// removes nothing, so the properties from init stay on the root.
+		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: { mode: "light", tokens: {} } });
+		expect(client.theme.current()).toEqual({ mode: "light", tokens: {} });
+		expect(document.documentElement.classList.contains("light")).toBe(true);
+		expect(document.documentElement.classList.contains("dark")).toBe(false);
+		expect(document.documentElement.style.getPropertyValue("--color-base-1-01")).toBe("oklch(0.14 0.001 85)");
 	});
 
 	test("stays null when the host sends no theme at all", async () => {
 		// The page must be able to tell "no theme" apart from a theme, so it can keep its own colours
 		// instead of reading empty strings. The document is left alone too.
 		const client = await connect_client();
+		expect(client.theme.current()).toBeNull();
+		expect(document.documentElement.getAttribute("style")).toBeNull();
+		expect(document.documentElement.className).toBe("");
+	});
+
+	test("stays null when the theme inside init is malformed", async () => {
+		// The same whole-message rule as later switches: a bad init theme is dropped, not half applied.
+		spy_on_post_message();
+		const clientPromise = bonobo_ui_connect();
+		post_from_host(make_init({ theme: { mode: "dark", tokens: "not a map" } }));
+		const client = await clientPromise;
 		expect(client.theme.current()).toBeNull();
 		expect(document.documentElement.getAttribute("style")).toBeNull();
 		expect(document.documentElement.className).toBe("");
