@@ -1,6 +1,5 @@
 import type { ConvexReactClient } from "convex/react";
 import type { GenericId } from "convex/values";
-import type { BonoboPublicDoc } from "bonobo-plugin-sdk";
 import type { BonoboConvexApi } from "bonobo-plugin-sdk/convex-api";
 
 /**
