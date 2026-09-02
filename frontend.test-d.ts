@@ -38,6 +38,10 @@ export function hooks_type_check() {
 	// @ts-expect-error `limit` is required by the door.
 	useQuery(client.api.plugins_data.watch_documents, { collection: "cursors" });
 
+	// @ts-expect-error the paginated door needs `paginationOpts`; the hook supplies it, a direct
+	// call must pass it.
+	client.convex.query(client.api.plugins_data.watch_documents_page, { collection: "messages" });
+
 	return { key, status, truncated };
 }
 
