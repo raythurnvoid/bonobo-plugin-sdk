@@ -11,13 +11,13 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260410.1
         version: 4.20260702.1
-      convex:
-        specifier: ^1.42.2
-        version: 1.44.0(react@19.2.8)
     devDependencies:
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.18
+      convex:
+        specifier: ^1.42.2
+        version: 1.44.0(react@19.2.8)
       happy-dom:
         specifier: 20.0.11
         version: 20.0.11

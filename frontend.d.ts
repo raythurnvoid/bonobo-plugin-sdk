@@ -35,9 +35,10 @@ export interface BonoboPageContext {
 	 */
 	pluginName: string;
 	/**
-	 * Id of the member viewing this frame. `putOwned`/`removeOwned` stored keys end with it.
+	 * Id of the member viewing this frame, typed as the `users` table id so it reaches a door
+	 * with no cast. `putOwned`/`removeOwned` stored keys end with it.
 	 */
-	userId: string;
+	userId: GenericId<"users">;
 	/**
 	 * The `id` of the `pages[]` entry from the manifest that this frame was opened as. It is the
 	 * last part of the page URL. A bundle that serves more than one page uses it to tell which one
@@ -75,9 +76,10 @@ export interface BonoboFileViewContext {
 	 */
 	pluginName: string;
 	/**
-	 * Id of the member viewing this frame. `putOwned`/`removeOwned` stored keys end with it.
+	 * Id of the member viewing this frame, typed as the `users` table id so it reaches a door
+	 * with no cast. `putOwned`/`removeOwned` stored keys end with it.
 	 */
-	userId: string;
+	userId: GenericId<"users">;
 	/**
 	 * The `id` of the `fileViews[]` entry from the manifest that this frame was opened as. A bundle
 	 * that serves more than one view uses it to tell which one it is.
@@ -365,14 +367,6 @@ export interface BonoboClient {
 		fetchJwt(args?: { forceRefreshToken: boolean }): Promise<string | null>;
 	};
 }
-
-/**
- * The id of a member as the plugin doors type it: a `users` table id, a branded string. Every id
- * the SDK hands out (`context.userId`, a member's `userId`, a principal's `userId`) is a plain
- * string, so cast it with `as BonoboUserId` before passing it to a door through `convex`. A plugin
- * has no `convex` package of its own to import the id type from, which is why it is exported here.
- */
-export type BonoboUserId = GenericId<"users">;
 
 /**
  * The result of one backend invoke. Like a data write it resolves rather than rejects.

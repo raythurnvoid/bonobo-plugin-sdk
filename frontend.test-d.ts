@@ -8,7 +8,7 @@
  * accepts any error on its line, so keep each of those lines wrong in exactly one way.
  */
 import { usePaginatedQuery, useQuery } from "convex/react";
-import type { BonoboClient, BonoboUserId } from "bonobo-plugin-sdk/frontend";
+import type { BonoboClient } from "bonobo-plugin-sdk/frontend";
 
 declare const client: BonoboClient;
 
@@ -81,8 +81,8 @@ export async function direct_calls_type_check() {
 		return message;
 	}
 
-	// A plain id from the SDK reaches a door through the exported id type.
-	void client.convex.query(client.api.plugins_data.resolve_member_display, { userIds: ["user_1" as BonoboUserId] });
+	// An id the SDK hands out is already the `users` table id, so it reaches a door with no cast.
+	void client.convex.query(client.api.plugins_data.resolve_member_display, { userIds: [client.context.userId] });
 
 	// The session primitive.
 	const expiresAt: number = client.session.expiresAt();
