@@ -102,3 +102,27 @@ export async function direct_calls_type_check() {
 
 	return { pageStatus, expiresAt, jwt };
 }
+
+export async function http_type_check() {
+	// The path and the body come from the app's own route table, so this compiles with no cast.
+	// The `unknown` annotation is not a check: every type is assignable to `unknown`. The result
+	// type is pinned as declaration text in `frontend.test.ts` instead.
+	const page: unknown = await client.fetchJson("/api/v1/files/list", { body: { limit: 100, kind: "file" } });
+
+	// @ts-expect-error the host serves no such route.
+	void client.fetchJson("/api/v1/nope");
+
+	// @ts-expect-error `files/read` takes `path` and `maxBytes`, not `nodeId`.
+	void client.fetchJson("/api/v1/files/read", { body: { path: "/notes.md", nodeId: "node_1" } });
+
+	// The invoke result's success branch is the route's own 200 body, so these fields survive the
+	// generator.
+	const invoked = await client.backend.invoke({ endpoint: "refresh" });
+	if ("_yay" in invoked) {
+		const runId: string = invoked._yay.runId;
+		const pluginStatus: number = invoked._yay.pluginStatus;
+		return { page, runId, pluginStatus };
+	}
+
+	return { page, runId: "", pluginStatus: 0 };
+}

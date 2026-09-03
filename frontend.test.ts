@@ -264,6 +264,58 @@ describe("bonobo_connect", () => {
 		expect(generated).not.toMatch(/import\("\.\.?\//);
 	});
 
+	test("ships the generated HTTP route table as its own export", async () => {
+		// Same rules as the Convex file above, applied to the second generated file: it is exported
+		// on its own path so a plugin can name the type without a client, and it must not reach back
+		// into app source.
+		const packageJson = JSON.parse(await readFile(join(import.meta.dirname, "package.json"), "utf8")) as {
+			exports: Record<string, unknown>;
+		};
+		expect(packageJson.exports["./http-api"]).toEqual({ types: "./http-api.d.ts" });
+
+		const generated = await readFile(join(import.meta.dirname, "http-api.d.ts"), "utf8");
+		expect(generated).toMatch(/^export type BonoboHttpApi = \{$/m);
+		expect(generated).toMatch(/^export type BonoboHttpApiPath = keyof BonoboHttpApi;$/m);
+		expect(generated).not.toMatch(/import\("\.\.?\//);
+
+		// The seven routes a UI token reaches. A generator run that drops one of these would make
+		// `client.fetchJson` reject a call the host still serves.
+		for (const path of [
+			"/api/v1/plugin-data/read",
+			"/api/v1/plugin-data/list",
+			"/api/v1/files/list",
+			"/api/v1/files/read",
+			"/api/v1/files/download-urls",
+			"/api/v1/plugin-backend/invoke",
+			"/plugins-ui/session-jwt",
+		]) {
+			expect(generated).toContain(`\t"${path}": {`);
+		}
+
+		// `fetchJson` types its body as `BonoboHttpApi[P]["POST"]["body"]`, so every route in the
+		// table must have a POST member. A route without one makes that index invalid, but the
+		// error is raised inside `frontend.d.ts`, and `--skipLibCheck` hides it in this package and
+		// in every first-party plugin. So nothing else would notice a GET-only or OPTIONS-only route
+		// being added to the generator's list, and that route's body check would silently accept
+		// anything. `/plugins-ui/session-jwt` already carries an OPTIONS member, so other methods do
+		// reach this file.
+		const routeBlocks = generated.split(/^\t"/m).slice(1);
+		expect(routeBlocks.length).toBeGreaterThan(0);
+		for (const block of routeBlocks) {
+			const routePath = block.slice(0, block.indexOf('"'));
+			expect({ routePath, hasPost: block.includes("\n\t\tPOST: {") }).toEqual({ routePath, hasPost: true });
+		}
+
+		// The app resolves the schema before it is printed, so nothing here may still point back at
+		// the app's own type names, and no property may carry the `readonly` its `as const` handlers
+		// gave it.
+		expect(generated).not.toMatch(/\btypeof\b|api_schemas_Main|\bExpand\b|\breadonly\b/);
+
+		// Every status must carry the body its handler answers. A handler that returns one object
+		// with a union `status` used to print `never` for each of those statuses.
+		expect(generated).not.toContain("body: never");
+	});
+
 	test("accepts a file-view context and rejects contexts with a missing or unknown kind", async () => {
 		spy_on_post_message();
 		const clientPromise = bonobo_connect();
@@ -366,10 +418,10 @@ describe("bonobo_connect", () => {
 		});
 		const fetchMock = vi.fn((url: string, init: { headers: Headers }): Promise<Response> => {
 			const bearer = init.headers.get("Authorization");
-			if (url.endsWith("/first") && bearer === "Bearer plu_1") {
+			if (url.endsWith("/files/list") && bearer === "Bearer plu_1") {
 				return Promise.resolve(new Response("expired", { status: 401 }));
 			}
-			if (url.endsWith("/second") && bearer === "Bearer plu_1") {
+			if (url.endsWith("/files/read") && bearer === "Bearer plu_1") {
 				return delayed401;
 			}
 			return Promise.resolve(
@@ -381,8 +433,8 @@ describe("bonobo_connect", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const first = client.fetchJson("/first");
-		const second = client.fetchJson("/second");
+		const first = client.fetchJson("/api/v1/files/list");
+		const second = client.fetchJson("/api/v1/files/read", { body: { path: "/notes.md" } });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		answer_refresh(postSpy, "plu_2");
 		await expect(first).resolves.toEqual({ bearer: "Bearer plu_2" });
@@ -496,10 +548,18 @@ describe("bonobo_connect", () => {
 		// happy-dom environment resolves a relative URL against the fake document location, so that
 		// form asks for `https://plugin.test/frontend.d.ts` and `readFile` refuses the scheme.
 		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
-		// Cut the declaration out first, from `fetchJson(` to the `Promise<…>;` that ends it, so a
-		// failure prints the signature instead of the whole file.
-		const fetchJsonDeclaration = declaration.match(/\bfetchJson\([^]*?\bPromise<[^>]*>;/)?.[0] ?? "";
+		// Cut the declaration out first, from `fetchJson` to the `Promise<…>;` that ends it, so a
+		// failure prints the signature instead of the whole file. The `[<(]` covers the type
+		// parameter 0.16.0 added; without it the scan misses the signature entirely and the
+		// assertion below fails on an empty string.
+		const fetchJsonDeclaration = declaration.match(/\bfetchJson[<(][^]*?\bPromise<[^>]*>;/)?.[0] ?? "";
 		expect(fetchJsonDeclaration).toMatch(/\): Promise<unknown>;$/);
+
+		// The path and the body are typed from the generated route table. A page cannot call a route
+		// the host does not serve, and it cannot send a field the route does not accept. The result
+		// still stays `unknown`, which is what the assertion above holds.
+		expect(fetchJsonDeclaration).toContain("fetchJson<P extends BonoboHttpApiPath>");
+		expect(fetchJsonDeclaration).toContain('body?: BonoboHttpApi[P]["POST"]["body"]');
 
 		// Read the implementation's own JSDoc too. It is the file a maintainer opens to edit
 		// `fetchJson`, and `any` is assignable to `unknown`, so the two can disagree forever without
@@ -1160,9 +1220,15 @@ describe("backend.invoke", () => {
 			"invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboBackendInvokeResult>;",
 		);
 		const resultType = declaration.match(/export type BonoboBackendInvokeResult =[^]*?\};/)?.[0] ?? "";
+		// The success branch is the route's own 200 body, read out of the generated table. Until
+		// 0.16.0 it was a second hand-written copy of those four fields, which could fall behind the
+		// app without anything failing.
 		expect(resultType).toContain(
-			"{ _yay: { runId: string; pluginStatus: number; output: string; outputTruncated: boolean } }",
+			'{ _yay: BonoboHttpApi["/api/v1/plugin-backend/invoke"]["POST"]["response"][200]["body"] }',
 		);
+		expect(resultType).not.toContain("runId: string");
+		// The refusal branch stays hand-written: the host's own error bodies say nothing about the
+		// `name` vocabulary the SDK maps them onto.
 		expect(resultType).toContain("{ _nay: { name: string; message: string; retryAfterMs?: number } }");
 
 		// `name` is a plain string in the type, so the doc block is the only place a plugin author

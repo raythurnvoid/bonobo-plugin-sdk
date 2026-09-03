@@ -111,6 +111,12 @@ export interface BonoboSecrets {
 /**
  * `env.BONOBO.host` — always present, no capability required. The public host APIs are plain
  * `fetch` calls against `apiOrigin` and must send `Authorization: Bearer <host.token>`.
+ *
+ * Their request and response shapes are generated from the app into `bonobo-plugin-sdk/http-api`.
+ * Type a call with `BonoboHttpApi["/api/v1/files/write"]["POST"]["body"]` and read a `200` back
+ * with `["POST"]["response"][200]["body"]`. Until 0.16.0 this package carried a second
+ * hand-written copy of those shapes. The README's "Public host APIs" table now carries the rules
+ * that lived in their doc blocks.
  */
 export interface BonoboHost {
 	apiOrigin: string;
@@ -220,149 +226,6 @@ export interface BonoboInvokeRequestedEvent {
 	configuration: BonoboConfigurationValue;
 	source: null;
 	invoke: BonoboInvokeRequestedEventInvoke;
-}
-
-/**
- * Request body for `POST {host.apiOrigin}/api/v1/files/download-urls`
- * (`Authorization: Bearer host.token`). Backend plugin runs must pass an array containing only
- * the triggering upload's `source.fileNodeId`; anything else responds `404`.
- * `expiresInSeconds` accepts 1–900 and defaults to 900. The granted TTL is clamped to the
- * remaining run-token lifetime.
- */
-export interface BonoboFilesDownloadUrlsRequest {
-	fileNodeIds: string[];
-	expiresInSeconds?: number;
-}
-
-/**
- * One successful file in {@link BonoboFilesDownloadUrlsResponse}. `expiresAt` is Unix epoch
- * milliseconds.
- */
-export interface BonoboFilesDownloadUrlItem {
-	fileNodeId: string;
-	url: string;
-	expiresAt: number;
-}
-
-/**
- * One file the host could not sign in {@link BonoboFilesDownloadUrlsResponse}.
- */
-export interface BonoboFilesDownloadUrlError {
-	fileNodeId: string;
-	message: string;
-}
-
-/**
- * Response body of `POST {host.apiOrigin}/api/v1/files/download-urls`.
- */
-export interface BonoboFilesDownloadUrlsResponse {
-	items: BonoboFilesDownloadUrlItem[];
-	errors: BonoboFilesDownloadUrlError[];
-	truncated: boolean;
-}
-
-/**
- * Request body for `POST {host.apiOrigin}/api/v1/files/write`
- * (`Authorization: Bearer host.token`). V1 writes Markdown only. Where a run may write depends on
- * how it started: an upload-triggered run may write only siblings of the triggering upload
- * (`path` must be an absolute `.md` path whose parent folder equals `source.path`'s parent
- * folder), while an invoke run has no source file and may write only inside folders the plugin
- * owns (`workspace.files.own-write`; create the folder first through
- * `/api/v1/files/plugin-folders/ensure`). Any other folder responds `403`. `overwrite` defaults
- * to `"replace"`; `"fail"` responds `409` when `path` already exists. Writing over an existing
- * editable Markdown file replaces its content in place and keeps the same `nodeId`.
- * `access: { readOnly: true }` on a create locks the new file with a lock the plugin itself can
- * pass and release; it needs `workspace.files.own-access` (or the service seal's
- * create-read-only consent) and is refused for API-key callers.
- */
-export interface BonoboFilesWriteRequest {
-	path: string;
-	content: string;
-	overwrite?: "replace" | "fail";
-	access?: { readOnly?: boolean };
-}
-
-/**
- * Response body of `POST {host.apiOrigin}/api/v1/files/write` — the written Markdown node.
- */
-export interface BonoboFilesWriteResponse {
-	path: string;
-	nodeId: string;
-	contentType: string;
-}
-
-/**
- * Request body for `POST {host.apiOrigin}/api/v1/files/touch`
- * (`Authorization: Bearer host.token`). Creates empty editable Markdown files so users get
- * immediate feedback about where a run's outputs will land; later `files/write` calls fill the
- * same nodes in place. Paths follow the same rules as `files/write` (absolute sibling `.md`
- * paths for plugin runs), at most 8 per call, and the call is idempotent: an already existing
- * file responds with its node and `created: false`.
- */
-export interface BonoboFilesTouchRequest {
-	paths: string[];
-}
-
-/**
- * Response body of `POST {host.apiOrigin}/api/v1/files/touch`.
- */
-export interface BonoboFilesTouchResponse {
-	files: Array<{ path: string; nodeId: string; created: boolean }>;
-}
-
-/**
- * Request body for `POST {host.apiOrigin}/api/v1/activities/start`
- * (`Authorization: Bearer host.token`). Opts this run into the host's workspace activity feed —
- * strictly optional; a plugin that wants to stay invisible simply never calls it. Call it once,
- * early in the run: a second call responds `409`. `title` is required display text (up to 120
- * characters after trimming); pass `""` to let the host compose one from the plugin's display
- * name and the triggering file's name. After opting in, the host tracks the rest automatically:
- * files the run touches or writes become the activity's targets, and the activity closes with
- * the run's final outcome.
- */
-export interface BonoboActivitiesStartRequest {
-	title: string;
-	/**
-	 * Required prediction of how long the run's work takes, in milliseconds (max 5 minutes =
-	 * 300000; larger values respond `400`). Estimate it from the amount of work the run usually
-	 * does. If the run never finishes within this window, the host closes the activity with the
-	 * `timeout` end state.
-	 */
-	timeoutMs: number;
-}
-
-/**
- * Response body of `POST {host.apiOrigin}/api/v1/activities/start`.
- */
-export interface BonoboActivitiesStartResponse {
-	activityId: string;
-}
-
-/**
- * One document from the plugin's own document store, as every read surface returns it: the
- * `/api/v1/plugin-data/*` read and list routes and the frontend `watch_*` doors alike.
- * `revision` grows by one on every accepted write and restarts
- * at 1 when a deleted key is created again. `ownership` is `"owned"` when only the member in
- * `createdBy` may change or delete the document through interactive writers; `"shared"` documents
- * follow the normal write rule. `writeMode` is `"versioned"` for documents a service producer
- * writes through the versioned route; interactive writers cannot touch those. `byteSize` is the
- * stored value's canonical JSON size in bytes. `createdAt` and `updatedAt` are Unix epoch
- * milliseconds.
- *
- * Renamed from `PublicDoc` in 0.8.0, matching the `Bonobo*` prefix of every other exported type.
- */
-export interface BonoboPublicDoc {
-	collection: string;
-	key: string;
-	value: Record<string, unknown>;
-	revision: number;
-	byteSize: number;
-	writeMode: "normal" | "versioned";
-	createdBy: string;
-	updatedBy: string;
-	ownership: "shared" | "owned";
-	createdAt: number;
-	updatedAt: number;
 }
 
 /**

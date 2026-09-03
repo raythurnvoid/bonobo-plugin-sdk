@@ -1,7 +1,7 @@
 {
 	"name": "bonobo-plugin-sdk",
 	"private": false,
-	"version": "0.15.0",
+	"version": "0.16.0",
 	"license": "Apache-2.0",
 	"types": "./index.d.ts",
 	"exports": {
@@ -14,6 +14,9 @@
 		},
 		"./convex-api": {
 			"types": "./convex-api.d.ts"
+		},
+		"./http-api": {
+			"types": "./http-api.d.ts"
 		}
 	},
 	"scripts": {

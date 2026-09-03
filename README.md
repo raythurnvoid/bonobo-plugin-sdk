@@ -95,14 +95,40 @@ A plugin may declare a YAML editor and attach generic filters to its events. The
 
 ## Public host APIs
 
-These are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authorization: Bearer <env.BONOBO.host.token>` — the same `/api/v1/*` machine API used by developer API keys:
+These are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authorization: Bearer <env.BONOBO.host.token>` — the same `/api/v1/*` machine API used by developer API keys.
 
-| Route                              | Body                                                                                                                                                                                                       | Response                                                                                                                                          |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/v1/files/download-urls` | `BonoboFilesDownloadUrlsRequest` — `{ fileNodeIds, expiresInSeconds? }` (1–900; defaults to 900; the granted TTL is clamped below the remaining run-token lifetime with a one-second signing margin)       | `BonoboFilesDownloadUrlsResponse` — `{ items, errors, truncated }`; each item contains `{ fileNodeId, url, expiresAt }` (`expiresAt` in epoch ms) |
-| `POST /api/v1/files/write`         | `BonoboFilesWriteRequest` — `{ path, content, overwrite?: "replace" \| "fail", access?: { readOnly?: boolean } }` (`overwrite` defaults to `"replace"`; `access` is refused for API-key callers)           | `BonoboFilesWriteResponse` — `{ path, nodeId, contentType }`                                                                                      |
-| `POST /api/v1/files/touch`         | `BonoboFilesTouchRequest` — `{ paths }` (at most 8 paths per call; the call is idempotent)                                                                                                                 | `BonoboFilesTouchResponse` — `{ files }`; each entry is `{ path, nodeId, created }`, and `created` is `false` when the file already existed       |
-| `POST /api/v1/activities/start`    | `BonoboActivitiesStartRequest` — `{ title, timeoutMs }` (`title` up to 120 characters after trimming, or `""` to let the host compose one; `timeoutMs` at most `300000`, and a larger value answers `400`) | `BonoboActivitiesStartResponse` — `{ activityId }`; a second call in the same run answers `409`                                                   |
+Their shapes are generated from the app into `bonobo-plugin-sdk/http-api`, so this package no longer keeps a second copy of them. Index the generated table by route, method, and status:
+
+```ts
+import type { BonoboHttpApi } from "bonobo-plugin-sdk/http-api";
+
+type WriteBody = BonoboHttpApi["/api/v1/files/write"]["POST"]["body"];
+type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["body"];
+```
+
+0.16.0 breaks two things and ships no deprecated aliases:
+
+- The `Bonobo*Request` and `Bonobo*Response` interfaces, and `BonoboPublicDoc`, are gone. The rules that lived in their doc blocks are in the table and the notes below it. Read the shapes off `BonoboHttpApi` instead.
+- `client.fetchJson` takes a generated route path instead of any `string`, and its `body` is typed from that path. A helper that forwards `path: string` and `body: unknown` no longer compiles; make it generic over the path, the way the "UI token API surface" section shows.
+
+| Route                              | Body                                                                                                                                                                                                                                                              | Response                                                                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/v1/files/download-urls` | `{ fileNodeIds, expiresInSeconds? }` (1–900; defaults to 900; the granted TTL is clamped below the remaining run-token lifetime with a one-second signing margin)                                                                                                 | `{ items, errors, truncated }`; each item is `{ fileNodeId, url, expiresAt }` (`expiresAt` in epoch ms) and each error is `{ fileNodeId, message }` |
+| `POST /api/v1/files/write`         | `{ path, content, overwrite?: "replace" \| "fail", access?: { readOnly?: boolean } }` — V1 writes Markdown only. `overwrite` defaults to `"replace"`; writing over an existing editable Markdown file replaces its content in place and keeps the same `nodeId`.  | `{ path, nodeId, contentType }`                                                                                                                   |
+| `POST /api/v1/files/touch`         | `{ paths }` — creates empty editable Markdown files, at most 8 per call, so members see where a run's outputs will land before the run fills them. Paths follow the `files/write` rule. The call is idempotent.                                                   | `{ files }`; each entry is `{ path, nodeId, created }`, and `created` is `false` when the file already existed                                     |
+| `POST /api/v1/activities/start`    | `{ title, timeoutMs }` (`title` up to 120 characters after trimming, or `""` to let the host compose one; `timeoutMs` at most `300000`, and a larger value answers `400`)                                                                                         | `{ activityId }`; a second call in the same run answers `409`                                                                                      |
+| `POST /api/v1/plugin-data/read`    | `{ collection, key }`                                                                                                                                                                                                                                             | `{ document }` — one stored document, or `null` when the key does not exist                                                                        |
+| `POST /api/v1/plugin-data/list`    | `{ collection, keyPrefix?, keyStartExclusive?, keyEndInclusive?, cursor?, limit? }`                                                                                                                                                                                | `{ documents, cursor, isDone }`                                                                                                                    |
+
+`access: { readOnly: true }` on a `files/write` create locks the new file with a lock the plugin itself can pass and release. It needs `workspace.files.own-access` (or the service seal's create-read-only consent) and is refused for API-key callers.
+
+Call `activities/start` once, and call it early. The host only collects targets after the activity exists, so files a run writes before that call never become its targets, and nothing reports the miss.
+
+`activities/start` needs `timeoutMs` because the host has no other way to know when a run has gone quiet. Estimate it from the amount of work the run usually does. If the run never finishes inside that window, the host closes the activity with the `timeout` end state.
+
+A stored document — what `plugin-data/read` and `plugin-data/list` return, and what the frontend `watch_*` doors deliver too — is `{ collection, key, value, revision, byteSize, writeMode, ownership, createdBy, updatedBy, createdAt, updatedAt }`. `revision` grows by one on every accepted write and restarts at 1 when a deleted key is created again. `ownership` is `"owned"` when only the member in `createdBy` may change or delete the document through interactive writers; `"shared"` documents follow the normal write rule. `writeMode` is `"versioned"` for documents a service producer writes through the versioned route, and interactive writers cannot touch those. `byteSize` is the stored value's canonical JSON size in bytes. `createdAt` and `updatedAt` are Unix epoch milliseconds.
+
+With `plugin.data.write`, a backend run also reaches `POST /api/v1/plugin-data/write`, `/write-batch`, and `/delete`. Read their shapes off `BonoboHttpApi`; a UI token never carries the write scope.
 
 Where a run may write depends on how it started:
 
@@ -232,7 +258,7 @@ Do not give your frame document a `no-referrer` referrer policy (for example `<m
 
 ### Using the Convex client
 
-`client.convex` is the frame's own authenticated Convex client, a `ConvexReactClient` from `convex/react`, and `client.api` holds typed references to the plugin doors, generated from the app into `convex-api.d.ts` (`bonobo-plugin-sdk/convex-api`). The SDK owns the client: it opens it on init, keeps it authenticated, and closes it on `pagehide`. A plugin never builds a second one. `react` and `convex` are peer dependencies of the SDK, so every plugin declares both in its own `dependencies`. The SDK needs `convex/react` at runtime even when the plugin never imports it.
+`client.convex` is the frame's own authenticated Convex client, a `ConvexReactClient` from `convex/react`, and `client.api` holds typed references to the plugin doors, generated from the app into `convex-api.d.ts` (`bonobo-plugin-sdk/convex-api`). It is one of two generated files: `http-api.d.ts` (`bonobo-plugin-sdk/http-api`) does the same for the HTTP routes. The app's own generator writes both, and the app's lint fails while either one is stale. The SDK owns the client: it opens it on init, keeps it authenticated, and closes it on `pagehide`. A plugin never builds a second one. `react` and `convex` are peer dependencies of the SDK, so every plugin declares both in its own `dependencies`. The SDK needs `convex/react` at runtime even when the plugin never imports it.
 
 **A plugin that imports `convex/react` itself must end up with the same `convex` install as the SDK.** The SDK builds the client, and the plugin's hooks read the client that the plugin's `ConvexProvider` was handed. Two different `convex` versions in one bundle means the hooks drive a client built by another copy of the library, which type-checks and then behaves in ways nothing here promises. That is why `convex` is a peer dependency since SDK 0.15.0: the package manager resolves the SDK's `convex/react` import to the plugin's own copy, so one bundle holds one `convex`. Keep the plugin's `convex` range equal to the SDK's peer range (`^1.42.2`) and check the plugin's lockfile resolves exactly one `convex` before releasing.
 
@@ -333,6 +359,17 @@ With the `workspace.files.read` capability the UI token may call:
 
 UI tokens are rejected on `/api/v1/files/write`.
 
+A UI token also reaches `POST /api/v1/plugin-data/read` and `/list` (with `plugin.data.read`), `POST /api/v1/plugin-backend/invoke` (with `plugin.backend.invoke`), and the same-origin `POST /plugins-ui/session-jwt` the SDK uses itself. Those seven routes are the whole UI surface.
+
+`client.fetchJson(path, init)` types `path` and `init.body` from the generated `BonoboHttpApi` table, so a path the host does not serve and a body field the route does not accept are compile errors:
+
+```ts
+// The body is checked against the app's own route schema.
+const page = await client.fetchJson("/api/v1/files/list", { body: { limit: 100, kind: "file" } });
+```
+
+The table holds every route a plugin's frame or backend run may reach. It does not hold the service-upload routes above, which only a sealed `psg_` grant may call. Because it holds the backend-run routes too, typing accepts a few paths a UI token cannot use: `/api/v1/files/write` compiles and still answers `403`. The seven routes above are the ones that work.
+
 `client.fetchJson(...)` answers `Promise<unknown>`. The value comes from outside the page, so check the shape before reading fields off it. The pagination rule below is the reason: a listing page may come back short or even empty while `isDone` is still `false`.
 
 `files/download-urls` accepts at most 100 file IDs in a 32 KB request, processes the first 20, and returns `{ items, errors, truncated }`.
@@ -354,7 +391,7 @@ With the `plugin.backend.invoke` capability, a frame may run the plugin's backen
 }
 ```
 
-`client.backend.invoke({ endpoint, input?, serializationKey? })` names the endpoint by its `id`, POSTs `/api/v1/plugin-backend/invoke` on the UI token, and resolves — never rejects — with `BonoboBackendInvokeResult`: `{ _yay: { runId, pluginStatus, output, outputTruncated } }` or `{ _nay: { name, message, retryAfterMs? } }`. The backend receives a `BonoboInvokeRequestedEvent` at the endpoint's declared path — the normal run envelope plus `invoke: { endpointId, serializationKey, input }` — and answers with its own response body: `pluginStatus` is that response's status, and a non-2xx `pluginStatus` still resolves `_yay`, because the plugin did answer. The whole invoke request body may be at most 32 KiB.
+`client.backend.invoke({ endpoint, input?, serializationKey? })` names the endpoint by its `id`, POSTs `/api/v1/plugin-backend/invoke` on the UI token, and resolves — never rejects — with `BonoboBackendInvokeResult`: `{ _yay: { runId, pluginStatus, output, outputTruncated } }` or `{ _nay: { name, message, retryAfterMs? } }`. Since 0.16.0 the `_yay` branch is the route's own `200` body out of `BonoboHttpApi`, not a copy of it kept here. The backend receives a `BonoboInvokeRequestedEvent` at the endpoint's declared path — the normal run envelope plus `invoke: { endpointId, serializationKey, input }` — and answers with its own response body: `pluginStatus` is that response's status, and a non-2xx `pluginStatus` still resolves `_yay`, because the plugin did answer. The whole invoke request body may be at most 32 KiB.
 
 Three rules for a plugin that uses it:
 

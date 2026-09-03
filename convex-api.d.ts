@@ -2,8 +2,10 @@
  * GENERATED FILE. Do not edit by hand.
  *
  * The public Convex functions a plugin frame may call on its own client, typed as the app
- * declares them. `packages/app/scripts/generate-plugin-sdk-types.ts` writes this file from the
- * app (`pnpm run generate:plugin-sdk-types`), and the app lint fails when it is stale.
+ * declares them.
+ *
+ * `packages/app/scripts/generate-plugin-sdk-types.ts` writes this file from the app
+ * (`pnpm run generate:plugin-sdk-types`), and the app lint fails when it is stale.
  */
 export type BonoboConvexApi = {
 	plugins_data: {

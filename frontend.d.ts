@@ -1,6 +1,7 @@
 import type { ConvexReactClient } from "convex/react";
 import type { GenericId } from "convex/values";
 import type { BonoboConvexApi } from "bonobo-plugin-sdk/convex-api";
+import type { BonoboHttpApi, BonoboHttpApiPath } from "bonobo-plugin-sdk/http-api";
 
 /**
  * Sent by the frame to `window.parent` at the exact `parentOrigin` from the URL fragment once the
@@ -255,6 +256,15 @@ export interface BonoboClient {
 	 * refreshes the token and retries exactly once. Ok responses resolve with the parsed JSON
 	 * body; non-ok responses throw an `Error` carrying `status` and `responseText`.
 	 *
+	 * `path` and `init.body` are typed from the app's own route table
+	 * ({@link BonoboHttpApi}, generated into `bonobo-plugin-sdk/http-api`), so a path the host does
+	 * not serve and a body field the route does not accept are both compile errors.
+	 *
+	 * That table also holds the routes only the plugin's backend run may call. A UI token reaches
+	 * seven: the three file routes named above, `/api/v1/plugin-data/read` and `/list`,
+	 * `/api/v1/plugin-backend/invoke`, and `/plugins-ui/session-jwt`. Typing accepts the rest, and
+	 * the host still answers `403`. The README's "UI token API surface" section is the list.
+	 *
 	 * The result is `unknown` on purpose. It is whatever the API answered, so the page has to
 	 * check the shape before reading it. The pagination note below is the reason: a listing page
 	 * may come back short or even empty, and a type that let you read `.items` straight away
@@ -268,9 +278,9 @@ export interface BonoboClient {
 	 * of requests per user action (say 30), keep `cursor` across actions, buffer items fetched
 	 * beyond what is shown, and retry a `429` on the same cursor — the page is not lost.
 	 */
-	fetchJson(
-		path: string,
-		init?: { method?: string; headers?: Record<string, string>; body?: unknown },
+	fetchJson<P extends BonoboHttpApiPath>(
+		path: P,
+		init?: { method?: string; headers?: Record<string, string>; body?: BonoboHttpApi[P]["POST"]["body"] },
 	): Promise<unknown>;
 	/**
 	 * The plugin's own backend, run on demand. Needs the `plugin.backend.invoke` capability and a
@@ -384,9 +394,13 @@ export interface BonoboClient {
  * `serializationKey`, an over-large body), and `"unavailable"` when the backend failed or the
  * outcome is unknown — the run may or may not have happened, which is why store writes must be
  * safe to repeat.
+ *
+ * `_yay` is the invoke route's own `200` body, read out of the generated {@link BonoboHttpApi}
+ * instead of copied here. The SDK used to keep a second hand-written copy of those fields. A copy
+ * can fall behind the app without anything failing.
  */
 export type BonoboBackendInvokeResult =
-	| { _yay: { runId: string; pluginStatus: number; output: string; outputTruncated: boolean } }
+	| { _yay: BonoboHttpApi["/api/v1/plugin-backend/invoke"]["POST"]["response"][200]["body"] }
 	| { _nay: { name: string; message: string; retryAfterMs?: number } };
 
 /**
