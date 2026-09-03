@@ -276,6 +276,10 @@ describe("bonobo_connect", () => {
 		const generated = await readFile(join(import.meta.dirname, "http-api.d.ts"), "utf8");
 		expect(generated).toMatch(/^export type BonoboHttpApi = \{$/m);
 		expect(generated).toMatch(/^export type BonoboHttpApiPath = keyof BonoboHttpApi;$/m);
+		// The answer union `fetchJson` resolves with. It lives in the generated file because it is
+		// part of the route contract: an author who writes their own `fetch` needs it without
+		// importing `frontend`.
+		expect(generated).toMatch(/^export type BonoboHttpResponse<P extends BonoboHttpApiPath> = \{$/m);
 		expect(generated).not.toMatch(/import\("\.\.?\//);
 
 		// The seven routes a UI token reaches. A generator run that drops one of these would make
@@ -304,6 +308,18 @@ describe("bonobo_connect", () => {
 		for (const block of routeBlocks) {
 			const routePath = block.slice(0, block.indexOf('"'));
 			expect({ routePath, hasPost: block.includes("\n\t\tPOST: {") }).toEqual({ routePath, hasPost: true });
+		}
+
+		// `BonoboHttpResponse` drops the statuses `fetchJson` throws instead of resolving. The
+		// runtime tests `status >= 500`; a conditional type cannot, so the generator spells the
+		// codes out. Read every 5xx the table declares and require the list to name it, or the
+		// union would keep a member no caller can ever reach.
+		const droppedStatuses = generated.match(/^export type BonoboHttpResponse[^]*?\n\t\t\? never$/m)?.[0] ?? "";
+		const declaredStatuses = new Set([...generated.matchAll(/^\t{4}(\d{3}): \{$/gm)].map((match) => match[1]!));
+		const declared5xx = [...declaredStatuses].filter((status) => Number(status) >= 500).sort();
+		expect(declared5xx.length).toBeGreaterThan(0);
+		for (const status of declared5xx) {
+			expect({ status, dropped: droppedStatuses.includes(`| ${status}\n`) }).toEqual({ status, dropped: true });
 		}
 
 		// The app resolves the schema before it is printed, so nothing here may still point back at
@@ -401,12 +417,15 @@ describe("bonobo_connect", () => {
 			);
 		vi.stubGlobal("fetch", fetchMock);
 
-		const first = client.fetchJson("/api/v1/files/list", { body: { limit: 100 } });
-		const second = client.fetchJson("/api/v1/files/list", { body: { limit: 100 } });
+		const first = client.fetchJson("/api/v1/files/list", { limit: 100 });
+		const second = client.fetchJson("/api/v1/files/list", { limit: 100 });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		answer_refresh(postSpy, "plu_2");
 
-		await expect(Promise.all([first, second])).resolves.toEqual([{ ok: true }, { ok: true }]);
+		await expect(Promise.all([first, second])).resolves.toEqual([
+			{ status: 200, body: { ok: true } },
+			{ status: 200, body: { ok: true } },
+		]);
 		expect(fetchMock).toHaveBeenCalledTimes(4);
 		expect(fetchMock.mock.calls[0]?.[1].headers.get("Authorization")).toBe("Bearer plu_1");
 		expect(fetchMock.mock.calls[2]?.[1].headers.get("Authorization")).toBe("Bearer plu_2");
@@ -439,30 +458,38 @@ describe("bonobo_connect", () => {
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const first = client.fetchJson("/api/v1/files/list");
-		const second = client.fetchJson("/api/v1/files/read", { body: { path: "/notes.md" } });
+		const first = client.fetchJson("/api/v1/files/list", { limit: 100 });
+		const second = client.fetchJson("/api/v1/files/read", { path: "/notes.md" });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		answer_refresh(postSpy, "plu_2");
-		await expect(first).resolves.toEqual({ bearer: "Bearer plu_2" });
+		await expect(first).resolves.toEqual({ status: 200, body: { bearer: "Bearer plu_2" } });
 
 		resolveDelayed401?.(new Response("late expired", { status: 401 }));
-		await expect(second).resolves.toEqual({ bearer: "Bearer plu_2" });
+		await expect(second).resolves.toEqual({ status: 200, body: { bearer: "Bearer plu_2" } });
 		expect(refresh_requests(postSpy)).toHaveLength(1);
 	});
 
-	test("throws after the one 401 retry instead of starting another cycle", async () => {
+	test("resolves the second 401 as a declared answer instead of starting another refresh cycle", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
 		post_from_host(make_init());
 		const client = await clientPromise;
-		const fetchMock = vi.fn().mockResolvedValue(new Response("still expired", { status: 401 }));
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(
+				new Response(JSON.stringify({ message: "Unauthenticated" }), {
+					status: 401,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
 		vi.stubGlobal("fetch", fetchMock);
 
-		const result = client.fetchJson("/api/v1/files/list");
+		const result = client.fetchJson("/api/v1/files/list", { limit: 100 });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		answer_refresh(postSpy, "plu_2");
 
-		await expect(result).rejects.toMatchObject({ status: 401, responseText: "still expired" });
+		// 401 is a status the route declares, so the second one is an answer, not a throw.
+		await expect(result).resolves.toEqual({ status: 401, body: { message: "Unauthenticated" } });
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 		expect(refresh_requests(postSpy)).toHaveLength(1);
 	});
@@ -541,59 +568,235 @@ describe("bonobo_connect", () => {
 		await expect(secondRefresh).resolves.toBe("plu_3");
 	});
 
-	test("declares the fetchJson result as unknown so a page must check the answer before reading it", async () => {
-		// `fetchJson` is the one call that hands the page data from outside the app, and outside data
-		// starts as `unknown`. With `any` a page could read `.items` off a listing page that came back
-		// empty while `isDone` was still false, which is exactly what the doc block warns about.
-		//
-		// This reads the declaration text because nothing in this package type-checks that file:
-		// `pnpm run typecheck` passes `--skipLibCheck`, which skips every `.d.ts`, and vitest
-		// transpiles the tests without checking types. A type-level assertion here would never run.
+	test("resolves a declared status instead of throwing, and throws every 5xx", async () => {
+		const client = await connect_client();
+		const fetchMock = vi.fn((_url: string, _init: RequestInit): Promise<Response> => {
+			throw new Error("not stubbed");
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		// A refusal the route declares is an answer. The old runtime threw here, so a page had to
+		// parse `responseText` back out of an Error to read the wait.
+		fetchMock.mockResolvedValueOnce(
+			new Response(JSON.stringify({ message: "Rate limit exceeded", retryAfterMs: 1500 }), {
+				status: 429,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).resolves.toEqual({
+			status: 429,
+			body: { message: "Rate limit exceeded", retryAfterMs: 1500 },
+		});
+
+		// A 5xx is the one outcome no caller can act on, so it stays a throw whether the route
+		// declares that status or not. The invoke route declares 502; it throws all the same, and
+		// the generated union drops the member to match.
+		fetchMock.mockResolvedValueOnce(new Response("gateway", { status: 502 }));
+		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).rejects.toMatchObject({
+			status: 502,
+			responseText: "gateway",
+		});
+
+		fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }));
+		await expect(client.fetchJson("/api/v1/files/list", { limit: 1 })).rejects.toMatchObject({
+			status: 500,
+			responseText: "boom",
+		});
+	});
+
+	test("throws with the status when a sub-500 answer is not JSON", async () => {
+		const client = await connect_client();
+		// Convex's own router answers an unrouted path with plain text and a 404. A frame built
+		// against a route table newer than the deployment it runs on meets exactly that. The status
+		// and the raw text must survive, or the page cannot tell it apart from a network failure.
+		const fetchMock = vi.fn(() =>
+			Promise.resolve(new Response("No HttpAction routed for /api/v1/files/list", { status: 404 })),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(client.fetchJson("/api/v1/files/list", { limit: 1 })).rejects.toMatchObject({
+			status: 404,
+			responseText: "No HttpAction routed for /api/v1/files/list",
+		});
+	});
+
+	test("passes a failed session refresh out instead of turning it into an answer", async () => {
+		const postSpy = spy_on_post_message();
+		const clientPromise = bonobo_connect();
+		post_from_host(make_init());
+		const client = await clientPromise;
+		const fetchMock = vi.fn(() => Promise.resolve(new Response("expired", { status: 401 })));
+		vi.stubGlobal("fetch", fetchMock);
+
+		// The host refuses to mint: the plugin was uninstalled, or the member lost access. The
+		// refusal is not a route answer, so it must not arrive as one — it carries no status, and a
+		// page written to narrow on `status` has to see it reject.
+		const result = client.fetchJson("/api/v1/files/list", { limit: 1 });
+		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
+		const request = refresh_requests(postSpy)[0]?.[0] as { requestId: string };
+		post_from_host({
+			type: "bonobo:token-error",
+			nonce: NONCE,
+			requestId: request.requestId,
+			message: "This plugin was uninstalled",
+		});
+
+		await expect(result).rejects.toThrow("This plugin was uninstalled");
+		await expect(result).rejects.not.toHaveProperty("status");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	test("owns the request fields it needs and passes the rest of init through", async () => {
+		const client = await connect_client();
+		const fetchMock = vi.fn(() =>
+			Promise.resolve(
+				new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } }),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const controller = new AbortController();
+		await client.fetchJson(
+			"/api/v1/files/list",
+			{ limit: 100, kind: "file" },
+			{
+				signal: controller.signal,
+				keepalive: true,
+				cache: "no-store",
+				headers: {
+					"X-Trace": "1",
+					// Header names are case-insensitive, so the type cannot forbid these three. The
+					// runtime sets them last, and that is the whole enforcement.
+					authorization: "Bearer stolen",
+					"content-type": "text/plain",
+					accept: "text/html",
+				},
+			},
+		);
+
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit & { headers: Headers }];
+		expect(url).toBe("https://api.test/api/v1/files/list");
+		expect(init.method).toBe("POST");
+		expect(init.body).toBe(JSON.stringify({ limit: 100, kind: "file" }));
+		// A redirect would resend the bearer to another origin, and no route redirects.
+		expect(init.redirect).toBe("error");
+		expect(init.signal).toBe(controller.signal);
+		expect(init.keepalive).toBe(true);
+		expect(init.cache).toBe("no-store");
+		expect(init.headers.get("X-Trace")).toBe("1");
+		expect(init.headers.get("Authorization")).toBe("Bearer plu_1");
+		expect(init.headers.get("Content-Type")).toBe("application/json");
+		expect(init.headers.get("Accept")).toBe("application/json");
+	});
+
+	test("lets an aborted request reject without a token refresh or a resend", async () => {
+		const postSpy = spy_on_post_message();
+		const clientPromise = bonobo_connect();
+		post_from_host(make_init());
+		const client = await clientPromise;
+
+		// `fetch` is what refuses an aborted signal, so the stub does the same. What this checks is
+		// the SDK's own behaviour around it: a rejection is not caught, not turned into an answer,
+		// and not retried.
+		const controller = new AbortController();
+		controller.abort();
+		const fetchMock = vi.fn((_url: string, init: RequestInit) =>
+			init.signal?.aborted
+				? Promise.reject(new DOMException("The operation was aborted.", "AbortError"))
+				: Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } })),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(client.fetchJson("/api/v1/files/list", { limit: 1 }, { signal: controller.signal })).rejects.toThrow(
+			"The operation was aborted.",
+		);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(refresh_requests(postSpy)).toHaveLength(0);
+	});
+
+	test("authorize hands out the session bearer for a plugin that brings its own fetch", async () => {
+		const client = await connect_client();
+
+		const bare = await client.authorize();
+		expect(bare).toBeInstanceOf(Headers);
+		expect(bare.get("Authorization")).toBe("Bearer plu_1");
+
+		// A plain object and a `Headers` instance are both `HeadersInit`, and the caller's own
+		// headers survive.
+		const fromObject = await client.authorize({ "X-Trace": "1" });
+		expect(fromObject.get("X-Trace")).toBe("1");
+		expect(fromObject.get("Authorization")).toBe("Bearer plu_1");
+
+		const fromHeaders = await client.authorize(new Headers({ Authorization: "Bearer stolen" }));
+		expect(fromHeaders.get("Authorization")).toBe("Bearer plu_1");
+	});
+
+	test("authorize refreshes first when the session is inside the expiry margin", async () => {
+		const postSpy = spy_on_post_message();
+		const clientPromise = bonobo_connect();
+		// 30 seconds left is inside the 60-second margin `getToken` uses, so the host is asked
+		// before the header is written.
+		post_from_host(make_init({ tokenExpiresAt: Date.now() + 30_000 }));
+		const client = await clientPromise;
+
+		const authorized = client.authorize();
+		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
+		answer_refresh(postSpy, "plu_2");
+		await expect(authorized.then((headers) => headers.get("Authorization"))).resolves.toBe("Bearer plu_2");
+	});
+
+	test("pins the fetchJson answer contract in the declaration text", async () => {
+		// Nothing in this package type-checks `frontend.d.ts`: `pnpm run typecheck` passes
+		// `--skipLibCheck`, which skips every `.d.ts`, and vitest transpiles the tests without
+		// checking types. So the signature is pinned as text.
 		//
 		// Build the path from `import.meta.dirname`, not from `new URL(..., import.meta.url)`. The
 		// happy-dom environment resolves a relative URL against the fake document location, so that
 		// form asks for `https://plugin.test/frontend.d.ts` and `readFile` refuses the scheme.
 		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
-		// Cut the declaration out first, from `fetchJson` to the `Promise<…>;` that ends it, so a
-		// failure prints the signature instead of the whole file. The `[<(]` covers the type
-		// parameter 0.16.0 added; without it the scan misses the signature entirely and the
-		// assertion below fails on an empty string.
-		const fetchJsonDeclaration = declaration.match(/\bfetchJson[<(][^]*?\bPromise<[^>]*>;/)?.[0] ?? "";
-		expect(fetchJsonDeclaration).toMatch(/\): Promise<unknown>;$/);
-
-		// The path and the body are typed from the generated route table. A page cannot call a route
-		// the host does not serve, and it cannot send a field the route does not accept. The result
-		// still stays `unknown`, which is what the assertion above holds.
+		// Cut the declaration out first, from `fetchJson` to the line that ends it, so a failure
+		// prints the signature instead of the whole file. Stop at the first line ending in `;`, not
+		// at the first `>`: the return type is nested now, so a `[^>]*` scan would run past the
+		// signature and swallow the next member.
+		const fetchJsonDeclaration = declaration.match(/\bfetchJson<[^]*?\n\t\): [^\n]*;/)?.[0] ?? "";
 		expect(fetchJsonDeclaration).toContain("fetchJson<P extends BonoboHttpApiPath>");
-		expect(fetchJsonDeclaration).toContain('body?: BonoboHttpApi[P]["POST"]["body"]');
+		// The body is its own parameter and the answer is the route's own status union. Both come
+		// from the generated table, so a plugin needs no second parser for a shape the app types.
+		expect(fetchJsonDeclaration).toContain('body: BonoboHttpApi[P]["POST"]["body"]');
+		expect(fetchJsonDeclaration).toContain('init?: Omit<RequestInit, "method" | "body" | "redirect">');
+		expect(fetchJsonDeclaration.endsWith("): Promise<BonoboHttpResponse<P>>;")).toBe(true);
+
+		// `authorize` is the own-fetch primitive that replaced the thin wrapper idea.
+		expect(declaration).toContain("authorize(headers?: HeadersInit): Promise<Headers>;");
+
+		// The backend wrapper and its result type are gone with no alias, by the clean-slate rule.
+		// Invoking the backend is `fetchJson` on the invoke route now.
+		expect(declaration).not.toContain("BonoboBackendInvokeResult");
+		expect(declaration).not.toMatch(/^\tbackend: \{$/m);
 
 		// Read the implementation's own JSDoc too. It is the file a maintainer opens to edit
-		// `fetchJson`, and `any` is assignable to `unknown`, so the two can disagree forever without
-		// a compile error. Someone reading only `frontend.js` would "fix" the declaration back.
+		// `fetchJson`, and the two files can disagree forever without a compile error.
 		const implementation = await readFile(join(import.meta.dirname, "frontend.js"), "utf8");
 		// Anchor on the block close so this reads fetchJson's own tag. Without the anchor the scan
 		// returns the first `@returns` in the file that has `fetchJson` somewhere after it.
 		const fetchJsonReturnsTag =
-			implementation.match(/@returns \{Promise<[^>]*>\}(?=\s*\*\/\s*async function fetchJson\()/)?.[0] ?? "";
-		expect(fetchJsonReturnsTag).toBe("@returns {Promise<unknown>}");
+			implementation.match(/@returns \{Promise<[^}]*>\}(?=\s*\*\/\s*async function fetchJson\()/)?.[0] ?? "";
+		expect(fetchJsonReturnsTag).toBe('@returns {Promise<import("bonobo-plugin-sdk/http-api").BonoboHttpResponse<P>>}');
+		expect(implementation).not.toContain("read_backend_invoke_success");
 
-		// The README states the same rule and then shows the one example a plugin author copies.
-		// That example used to read `page.items`, `page.cursor`, `page.isDone` and `error.status`
-		// with no check at all, so it broke the rule printed above it and did not compile in a
-		// TypeScript plugin — which every first-party plugin is. Read the file the same way,
-		// because no gate in this package looks at the README.
+		// The README states the same contract and then shows the one example a plugin author
+		// copies. Read the file directly, because no gate in this package looks at the README.
 		const readme = await readFile(join(import.meta.dirname, "README.md"), "utf8");
 		// Cut out just the frontend example's fenced block, so a failure prints the snippet.
 		const frontendExample = readme.match(/### Frontend page example\s*```js\n([^]*?)```/)?.[1] ?? "";
 		expect(frontendExample).toContain("client.fetchJson");
-
-		// Both guards must survive, in the shape the shipped plugins already use: the video
-		// player's `get_error_status` before reading a rejection's `status`, and Council's
-		// `as_record` before reading fields off the answer.
-		expect(frontendExample).toContain('"status" in error');
-		expect(frontendExample).toContain('typeof page === "object" && page !== null');
-		// And nothing may read a field straight off the `unknown` that `fetchJson` answered.
-		expect(frontendExample).not.toMatch(/\bpage\.\w/);
+		// The example must narrow on the status before it reads the body. The old one caught the
+		// thrown error and read `status` off it, then checked the body shape by hand; a declared
+		// status is an answer now, so neither belongs in the example any more.
+		expect(frontendExample).toContain("res.status === 429");
+		expect(frontendExample).toContain("res.status !== 200");
+		expect(frontendExample).not.toContain('"status" in error');
+		expect(frontendExample).not.toContain("safeParse");
 	});
 });
 
@@ -1115,137 +1318,5 @@ describe("client.theme", () => {
 		expect(client.theme.current()).toBeNull();
 		expect(document.documentElement.getAttribute("style")).toBeNull();
 		expect(document.documentElement.className).toBe("");
-	});
-});
-
-describe("backend.invoke", () => {
-	const SUCCESS_BODY = { runId: "run_1", pluginStatus: 200, output: '{"ok":true}', outputTruncated: false };
-
-	function json_response(body: unknown, status = 200) {
-		return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-	}
-
-	test("posts the endpoint id on the UI token and drops omitted fields instead of sending undefined", async () => {
-		const client = await connect_client();
-		const fetchMock = vi.fn().mockResolvedValue(json_response(SUCCESS_BODY));
-		vi.stubGlobal("fetch", fetchMock);
-
-		await expect(
-			client.backend.invoke({ endpoint: "refresh", input: { requestId: "r1" }, serializationKey: "user_1" }),
-		).resolves.toEqual({ _yay: SUCCESS_BODY });
-
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		const [url, init] = fetchMock.mock.calls[0] as [string, { method: string; headers: Headers; body: string }];
-		expect(url).toBe("https://api.test/api/v1/plugin-backend/invoke");
-		expect(init.method).toBe("POST");
-		expect(init.headers.get("Authorization")).toBe("Bearer plu_1");
-		expect(init.headers.get("Content-Type")).toBe("application/json");
-		expect(JSON.parse(init.body)).toEqual({
-			endpoint: "refresh",
-			input: { requestId: "r1" },
-			serializationKey: "user_1",
-		});
-
-		// The route's validator is strict, so an omitted input or serializationKey must stay out of
-		// the body entirely rather than travel as a literal null.
-		await client.backend.invoke({ endpoint: "refresh" });
-		const secondBody = JSON.parse((fetchMock.mock.calls[1] as [string, { body: string }])[1].body) as unknown;
-		expect(secondBody).toEqual({ endpoint: "refresh" });
-	});
-
-	test("relays the backend's own answer, so a non-2xx pluginStatus still resolves _yay", async () => {
-		const client = await connect_client();
-		const body = { runId: "run_2", pluginStatus: 422, output: "no", outputTruncated: true };
-		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json_response(body)));
-
-		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({ _yay: body });
-	});
-
-	test("a malformed success body resolves unavailable instead of handing the page a half-checked object", async () => {
-		const client = await connect_client();
-		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json_response({ runId: 1 })));
-
-		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
-			_nay: { name: "unavailable", message: "Failed to run the plugin backend" },
-		});
-		expect(errorSpy).toHaveBeenCalled();
-	});
-
-	test("409 and 429 both map to busy and carry the server's retryAfterMs through", async () => {
-		const client = await connect_client();
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(json_response({ message: "This endpoint is already running", retryAfterMs: 1500 }, 409))
-			.mockResolvedValueOnce(json_response({ message: "Rate limit exceeded", retryAfterMs: 30_000 }, 429))
-			.mockResolvedValueOnce(new Response("locked", { status: 409 }));
-		vi.stubGlobal("fetch", fetchMock);
-
-		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
-			_nay: { name: "busy", message: "This endpoint is already running", retryAfterMs: 1500 },
-		});
-		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
-			_nay: { name: "busy", message: "Rate limit exceeded", retryAfterMs: 30_000 },
-		});
-		// A refusal body that is not JSON still maps to busy; retryAfterMs is simply absent.
-		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
-			_nay: { name: "busy", message: "The plugin backend is busy" },
-		});
-	});
-
-	test("a live-session refusal is denied, a refused request is invalid, and a failed backend is unavailable", async () => {
-		const client = await connect_client();
-		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(json_response({ message: "Permission denied" }, 403))
-			.mockResolvedValueOnce(json_response({ message: "Endpoint not found" }, 404))
-			.mockResolvedValueOnce(json_response({ message: "Plugin backend failed", runId: "run_9" }, 502));
-		vi.stubGlobal("fetch", fetchMock);
-
-		// The token is minutes from expiry, so the SDK's session clock says this 403 is a real denial.
-		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
-			_nay: { name: "denied", message: "Permission denied" },
-		});
-		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
-			_nay: { name: "invalid", message: "Endpoint not found" },
-		});
-		// A 5xx means the outcome is unknown: the run may have half-happened, so the page only
-		// retries work it made safe to repeat.
-		await expect(client.backend.invoke({ endpoint: "refresh" })).resolves.toEqual({
-			_nay: { name: "unavailable", message: "Failed to run the plugin backend" },
-		});
-		expect(errorSpy).toHaveBeenCalled();
-	});
-
-	test("pins the invoke declaration and its result contract in the declaration text", async () => {
-		// Same reason as the fetchJson pin: `pnpm run typecheck` passes `--skipLibCheck`, which
-		// skips every `.d.ts`, so the declaration text is the only thing a test can hold.
-		const declaration = await readFile(join(import.meta.dirname, "frontend.d.ts"), "utf8");
-		expect(declaration).toContain(
-			"invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboBackendInvokeResult>;",
-		);
-		const resultType = declaration.match(/export type BonoboBackendInvokeResult =[^]*?\};/)?.[0] ?? "";
-		// The success branch is the route's own 200 body, read out of the generated table. Until
-		// 0.16.0 it was a second hand-written copy of those four fields, which could fall behind the
-		// app without anything failing.
-		expect(resultType).toContain(
-			'{ _yay: BonoboHttpApi["/api/v1/plugin-backend/invoke"]["POST"]["response"][200]["body"] }',
-		);
-		expect(resultType).not.toContain("runId: string");
-		// The refusal branch stays hand-written: the host's own error bodies say nothing about the
-		// `name` vocabulary the SDK maps them onto.
-		expect(resultType).toContain("{ _nay: { name: string; message: string; retryAfterMs?: number } }");
-
-		// `name` is a plain string in the type, so the doc block is the only place a plugin author
-		// learns the vocabulary — the member-list pin's rule, applied here. Anchor on the doc's own
-		// first sentence so the scan cannot drift into another type's doc block.
-		const resultDoc = declaration.match(/The result of one backend invoke[^]*?\*\//)?.[0] ?? "";
-		for (const name of ["busy", "denied", "session_expired", "invalid", "unavailable"]) {
-			expect(resultDoc).toContain(`\`"${name}"\``);
-		}
-		// The one behavior a page author most likely gets wrong: a non-2xx backend answer is not a
-		// refusal.
-		expect(resultDoc).toContain("still resolves `_yay`");
 	});
 });

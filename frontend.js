@@ -100,30 +100,6 @@ function apply_theme(theme) {
 }
 
 /**
- * Reads the invoke route's success body before plugin code can use it. The route is an outside
- * boundary; `undefined` means the shape was not the contract, which the caller reports as
- * unavailable rather than handing the page a half-checked object.
- *
- * @param {unknown} value
- * @returns {{ runId: string, pluginStatus: number, output: string, outputTruncated: boolean } | undefined}
- */
-function read_backend_invoke_success(value) {
-	if (typeof value !== "object" || value === null) {
-		return undefined;
-	}
-	const body = /** @type {Record<string, unknown>} */ (value);
-	if (
-		typeof body.runId !== "string" ||
-		typeof body.pluginStatus !== "number" ||
-		typeof body.output !== "string" ||
-		typeof body.outputTruncated !== "boolean"
-	) {
-		return undefined;
-	}
-	return { runId: body.runId, pluginStatus: body.pluginStatus, output: body.output, outputTruncated: body.outputTruncated };
-}
-
-/**
  * Validates the `bonobo:init` context union: `kind: "page"` or `kind: "file_view"`.
  *
  * @param {unknown} value
@@ -247,8 +223,9 @@ function read_bridge_bootstrap() {
  * subscription at once whatever a JWT says.
  *
  * Secrets never reach this frame. A `plu_` token has no secrets scope, and the SDK has no
- * secrets API. A page that needs a secret calls its own backend through `backend.invoke`; the
- * backend run reads the secret with `env.BONOBO.secrets.get(name)`.
+ * secrets API. A page that needs a secret calls its own backend through
+ * `fetchJson("/api/v1/plugin-backend/invoke", ...)`; the backend run reads the secret with
+ * `env.BONOBO.secrets.get(name)`.
  *
  * @returns {Promise<import("bonobo-plugin-sdk/frontend").BonoboClient>}
  */
@@ -347,29 +324,57 @@ export async function bonobo_connect() {
 	};
 
 	/**
-	 * `fetch` against `apiOrigin + path` with `Authorization: Bearer <token>`. When `init.body`
-	 * is set it is JSON-encoded and sent with `Content-Type: application/json`, and the default
-	 * method is `POST`; without a body the default method is `GET`. On a `401` the client
-	 * refreshes the token and retries exactly once. Ok responses resolve with the parsed JSON
-	 * body; non-ok responses throw an `Error` carrying `status` and `responseText`.
+	 * `POST apiOrigin + path` with `body` as JSON, and the route's own answer back.
 	 *
-	 * @param {string} path - Public API path starting with `/`, e.g. `"/api/v1/files/list"`.
-	 * @param {{ method?: string, headers?: Record<string, string>, body?: unknown }} [init]
-	 * @returns {Promise<unknown>}
+	 * The result is `{ status, body }` typed from the app's route table
+	 * ({@link BonoboHttpResponse}, generated into `bonobo-plugin-sdk/http-api`), so narrowing on
+	 * `status` narrows `body` to what that route answers for that status. `path` and `body` come
+	 * from the same table, so a path the host does not serve and a body field the route does not
+	 * accept are both compile errors.
+	 *
+	 * A status below 500 with a JSON body resolves. Three things reject instead, all with the same
+	 * meaning for the caller — the route did not answer:
+	 *
+	 * - A status of 500 or more. It throws an `Error` carrying `status` and `responseText`. A 5xx
+	 *   means the same thing to every caller, which is that the outcome is unknown. The generated
+	 *   union drops its 5xx members for that reason, so type and runtime agree.
+	 * - A body that is not JSON, on any status. Every declared answer of every route is JSON, so a
+	 *   plain-text body means something other than the route answered — Convex's own router
+	 *   answers an unrouted path that way. It throws the same `Error` shape, so the caller still
+	 *   sees the status and the raw text.
+	 * - A session the host will not renew. `getToken` and `refreshToken` both reject when the host
+	 *   answers `bonobo:token-error` or does not answer in 10 seconds, and that rejection travels
+	 *   out of here unchanged. Those errors carry no `status`, the same as a network failure.
+	 *
+	 * `init` takes the rest of `RequestInit` — `signal`, extra `headers`, `keepalive`, `cache`, and
+	 * so on. These fields are set after `init` is merged, so a caller's value never wins:
+	 * `method` (always `POST`), `body` (the parameter, JSON-encoded), `Authorization` (the session
+	 * token, with one refresh-and-resend on a 401), `Content-Type` and `Accept`
+	 * (`application/json`), and `redirect: "error"`. `method`, `body` and `redirect` are removed
+	 * from the type too. The three headers cannot be: header names are case-insensitive, so the
+	 * type cannot name them, and setting them last is the whole enforcement. Redirects are refused
+	 * because following one would resend the bearer to another origin, and no route redirects.
+	 *
+	 * @template {import("bonobo-plugin-sdk/http-api").BonoboHttpApiPath} P
+	 * @param {P} path - Public API path starting with `/`, e.g. `"/api/v1/files/list"`.
+	 * @param {import("bonobo-plugin-sdk/http-api").BonoboHttpApi[P]["POST"]["body"]} body
+	 * @param {Omit<RequestInit, "method" | "body" | "redirect">} [init]
+	 * @returns {Promise<import("bonobo-plugin-sdk/http-api").BonoboHttpResponse<P>>}
 	 */
-	async function fetchJson(path, init) {
-		const has_body = init?.body !== undefined;
+	async function fetchJson(path, body, init) {
+		const payload = JSON.stringify(body);
 		/** @param {string} bearer */
 		const send = (bearer) => {
 			const headers = new Headers(init?.headers);
 			headers.set("Authorization", `Bearer ${bearer}`);
-			if (has_body) {
-				headers.set("Content-Type", "application/json");
-			}
+			headers.set("Content-Type", "application/json");
+			headers.set("Accept", "application/json");
 			return fetch(apiOrigin + path, {
-				method: init?.method ?? (has_body ? "POST" : "GET"),
+				...init,
+				method: "POST",
+				body: payload,
 				headers,
-				body: has_body ? JSON.stringify(init.body) : undefined,
+				redirect: "error",
 			});
 		};
 
@@ -380,82 +385,46 @@ export async function bonobo_connect() {
 			// token in that case so a late 401 cannot rotate the fresh token again.
 			response = await send(token !== firstBearer ? token : await refreshToken());
 		}
-		if (!response.ok) {
-			const responseText = await response.text();
-			throw Object.assign(new Error(`${path} responded ${response.status}: ${responseText}`), {
+		// Read the body as text first. A 5xx is refused whatever it says, and a body that will not
+		// parse has to be reported with its status, which `response.json()` alone cannot do.
+		const responseText = await response.text();
+		/** @param {string} reason */
+		const refuse = (reason) =>
+			Object.assign(new Error(`${path} responded ${response.status}: ${reason}`), {
 				status: response.status,
 				responseText,
 			});
+
+		if (response.status >= 500) {
+			throw refuse(responseText);
 		}
-		return response.json();
+
+		let parsedBody;
+		try {
+			parsedBody = JSON.parse(responseText);
+		} catch {
+			throw refuse("the body was not JSON");
+		}
+
+		return /** @type {import("bonobo-plugin-sdk/http-api").BonoboHttpResponse<P>} */ ({
+			status: response.status,
+			body: parsedBody,
+		});
 	}
 
-	/** @type {import("bonobo-plugin-sdk/frontend").BonoboClient["backend"]} */
-	const backend = {
-		invoke(opts) {
-			return fetchJson("/api/v1/plugin-backend/invoke", {
-				body: {
-					endpoint: opts.endpoint,
-					...(opts.input === undefined ? {} : { input: opts.input }),
-					...(opts.serializationKey === undefined ? {} : { serializationKey: opts.serializationKey }),
-				},
-			})
-				.then((response) => {
-					const result = read_backend_invoke_success(response);
-					if (result === undefined) {
-						console.error("[bonobo-plugin-sdk] Plugin backend invoke response was invalid");
-						return { _nay: { name: "unavailable", message: "Failed to run the plugin backend" } };
-					}
-					return { _yay: result };
-				})
-				.catch((error) => {
-					const errorRecord =
-						typeof error === "object" && error !== null ? /** @type {Record<string, unknown>} */ (error) : null;
-					const status = typeof errorRecord?.status === "number" ? errorRecord.status : null;
-					/** @type {Record<string, unknown> | null} */
-					let refusal = null;
-					if (typeof errorRecord?.responseText === "string") {
-						try {
-							const parsed = JSON.parse(errorRecord.responseText);
-							refusal = typeof parsed === "object" && parsed !== null ? parsed : null;
-						} catch {
-							refusal = null;
-						}
-					}
-					const message = typeof refusal?.message === "string" ? refusal.message : null;
-
-					// 409 is the serialization lock, 429 the member's invoke rate bucket. Both mean
-					// "wait and try again" and both carry retryAfterMs, so the page handles them as one.
-					if (status === 409 || status === 429) {
-						return {
-							_nay: {
-								name: "busy",
-								message: message ?? "The plugin backend is busy",
-								...(typeof refusal?.retryAfterMs === "number" ? { retryAfterMs: refusal.retryAfterMs } : {}),
-							},
-						};
-					}
-					// The server refuses a lapsed session and a revoked plugin the same way, and the
-					// SDK's own session clock is the whole difference. A page that reads the doors
-					// directly makes the same split with `session.expiresAt()`.
-					if (status === 401 || status === 403) {
-						if (Date.now() >= tokenExpiresAt) {
-							return { _nay: { name: "session_expired", message: "This plugin session expired" } };
-						}
-						return { _nay: { name: "denied", message: message ?? "This plugin may not run its backend here" } };
-					}
-					if (status !== null && status < 500 && message !== null) {
-						return { _nay: { name: "invalid", message } };
-					}
-					// A thrown refresh (the session doc is gone) reaches here with no status at all.
-					if (Date.now() >= tokenExpiresAt) {
-						return { _nay: { name: "session_expired", message: "This plugin session expired" } };
-					}
-					console.error("[bonobo-plugin-sdk] Plugin backend invoke failed:", error);
-					return { _nay: { name: "unavailable", message: "Failed to run the plugin backend" } };
-				});
-		},
-	};
+	/**
+	 * A `Headers` object carrying the current session bearer, for a plugin that calls the host with
+	 * its own `fetch` instead of `fetchJson`. Any headers passed in are kept; `Authorization` is
+	 * set last and replaces one of that name.
+	 *
+	 * @param {HeadersInit} [headers]
+	 * @returns {Promise<Headers>}
+	 */
+	async function authorize(headers) {
+		const authorized = new Headers(headers);
+		authorized.set("Authorization", `Bearer ${await getToken()}`);
+		return authorized;
+	}
 
 	/**
 	 * Fallback for a host that delivered no JWT: exchanges the session token for the plugin-session
@@ -636,7 +605,7 @@ export async function bonobo_connect() {
 					getToken,
 					refreshToken,
 					fetchJson,
-					backend,
+					authorize,
 					convex: convexClient,
 					api: bonobo_convex_api,
 					session: {

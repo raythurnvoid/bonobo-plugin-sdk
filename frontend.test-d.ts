@@ -104,25 +104,63 @@ export async function direct_calls_type_check() {
 }
 
 export async function http_type_check() {
-	// The path and the body come from the app's own route table, so this compiles with no cast.
-	// The `unknown` annotation is not a check: every type is assignable to `unknown`. The result
-	// type is pinned as declaration text in `frontend.test.ts` instead.
-	const page: unknown = await client.fetchJson("/api/v1/files/list", { body: { limit: 100, kind: "file" } });
+	// The path, the body and the answer all come from the app's own route table, so this compiles
+	// with no cast. `init` is the rest of `RequestInit`.
+	const page = await client.fetchJson(
+		"/api/v1/files/list",
+		{ limit: 100, kind: "file" },
+		{ signal: new AbortController().signal },
+	);
 
-	// @ts-expect-error the host serves no such route.
-	void client.fetchJson("/api/v1/nope");
+	// @ts-expect-error the answer is a union over the route's statuses; narrow on `status` first.
+	void page.body.items;
 
-	// @ts-expect-error `files/read` takes `path` and `maxBytes`, not `nodeId`.
-	void client.fetchJson("/api/v1/files/read", { body: { path: "/notes.md", nodeId: "node_1" } });
-
-	// The invoke result's success branch is the route's own 200 body, so these fields survive the
-	// generator.
-	const invoked = await client.backend.invoke({ endpoint: "refresh" });
-	if ("_yay" in invoked) {
-		const runId: string = invoked._yay.runId;
-		const pluginStatus: number = invoked._yay.pluginStatus;
-		return { page, runId, pluginStatus };
+	if (page.status === 200) {
+		const items: unknown[] = page.body.items;
+		void items;
 	}
 
-	return { page, runId: "", pluginStatus: 0 };
+	// @ts-expect-error the host serves no such route.
+	void client.fetchJson("/api/v1/nope", {});
+
+	// @ts-expect-error `files/read` takes `path` and `maxBytes`, not `nodeId`.
+	void client.fetchJson("/api/v1/files/read", { path: "/notes.md", nodeId: "node_1" });
+
+	// @ts-expect-error `method` is the SDK's; it always sends `POST`.
+	void client.fetchJson("/api/v1/files/list", { limit: 1 }, { method: "GET" });
+
+	// @ts-expect-error so is `redirect`: it is always "error", so the type drops it too.
+	void client.fetchJson("/api/v1/files/list", { limit: 1 }, { redirect: "follow" });
+
+	// Invoking the plugin's backend is one route like any other now.
+	const invoked = await client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" });
+	if (invoked.status === 200) {
+		const runId: string = invoked.body.runId;
+		const pluginStatus: number = invoked.body.pluginStatus;
+		return { runId, pluginStatus };
+	}
+	if (invoked.status === 409) {
+		// The serialization lock always says how long to wait.
+		const retryAfterMs: number = invoked.body.retryAfterMs;
+		void retryAfterMs;
+	}
+	if (invoked.status === 429) {
+		// The rate-limit refusal carries the wait; the call-limit one does not, so the union makes
+		// the field optional and the caller has to allow for a missing hint.
+		const retryAfterMs: number | undefined = invoked.body.retryAfterMs;
+		void retryAfterMs;
+	}
+
+	// @ts-expect-error the invoke route declares a 502, but `fetchJson` throws every 5xx instead of
+	// resolving it, so the union drops that member.
+	void (invoked.status === 502);
+
+	// The own-fetch primitive.
+	const authorized: Headers = await client.authorize({ "X-Trace": "1" });
+	void authorized;
+
+	// @ts-expect-error the backend wrapper left the SDK in 0.17.0.
+	void client.backend;
+
+	return { runId: "", pluginStatus: 0 };
 }

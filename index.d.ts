@@ -114,9 +114,10 @@ export interface BonoboSecrets {
  *
  * Their request and response shapes are generated from the app into `bonobo-plugin-sdk/http-api`.
  * Type a call with `BonoboHttpApi["/api/v1/files/write"]["POST"]["body"]` and read a `200` back
- * with `["POST"]["response"][200]["body"]`. Until 0.16.0 this package carried a second
- * hand-written copy of those shapes. The README's "Public host APIs" table now carries the rules
- * that lived in their doc blocks.
+ * with `["POST"]["response"][200]["body"]`. `BonoboHttpResponse<"/api/v1/files/write">` is that
+ * route's whole `{ status, body }` answer union, for a run that checks the status instead of one
+ * shape. Until 0.16.0 this package carried a second hand-written copy of those shapes. The
+ * README's "Public host APIs" table now carries the rules that lived in their doc blocks.
  */
 export interface BonoboHost {
 	apiOrigin: string;
@@ -199,7 +200,7 @@ export interface BonoboInvokeRequestedEventInvoke {
 /**
  * JSON body of the `request` the worker's `fetch(request, env, ctx)` receives for an invoke run:
  * a page or file view called the host's `/api/v1/plugin-backend/invoke` route (through
- * `client.backend.invoke` in the frontend SDK) and the host runs the backend synchronously. The
+ * `client.fetchJson` on that path in the frontend SDK) and the host runs the backend synchronously. The
  * request URL is `https://plugin.local<endpoint.path>` for the declared endpoint, so `fetch` can
  * route on `request.url` like a small router; host events keep the reserved
  * `/__bonobo_senate/run` path, which a manifest endpoint can never use. `source` is always null —

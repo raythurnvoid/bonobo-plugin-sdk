@@ -23,7 +23,7 @@ Plugin page and file view (the sandboxed iframe):
 - `plugin.data.user-write` — the plugin's UI pages and file views may create, change, and delete documents in that store as the acting member. The frame's UI token never carries a write scope: the write runs through the app's own member-attributed mutations on the frame's own Convex client (see [Using the Convex client](#using-the-convex-client)). Declaring it also requires `plugin.data.read`.
 - `ui.outbound.fetch` — the plugin's UI pages and file views may call the manifest's `uiOutboundOrigins`. It is enforced as `connect-src` in the frame's CSP, so it is the browser that refuses anything else. This capability and `uiOutboundOrigins` require each other: neither may be declared alone. Keep it separate from `outbound.fetch` — that one is the backend, this one is a frame holding a member's session token.
 - `workspace.members.read` — the plugin's UI pages and file views may list every member of the workspace, as `{ userId, displayName }` rows through the `list_members` door on the frame's Convex client. Email is never returned. Without it a frame can still resolve names for ids it already holds (the `resolve_member_display` door), which enumerates nobody. Every member reads the roster under one rule, including a member who signed in anonymously.
-- `plugin.backend.invoke` — the plugin's UI pages and file views may run the plugin's backend on demand through `client.backend.invoke(...)` (`POST /api/v1/plugin-backend/invoke` on the UI token). The manifest must declare `backend.endpoints`; the capability and the endpoint list require each other. It is its own consent because "a member's click runs publisher code that can write" is different from "an upload runs it".
+- `plugin.backend.invoke` — the plugin's UI pages and file views may run the plugin's backend on demand through `POST /api/v1/plugin-backend/invoke` on the UI token. The manifest must declare `backend.endpoints`; the capability and the endpoint list require each other. It is its own consent because "a member's click runs publisher code that can write" is different from "an upload runs it".
 
 Service grant (publisher-registered services):
 
@@ -97,16 +97,25 @@ A plugin may declare a YAML editor and attach generic filters to its events. The
 
 These are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authorization: Bearer <env.BONOBO.host.token>` — the same `/api/v1/*` machine API used by developer API keys.
 
-Their shapes are generated from the app into `bonobo-plugin-sdk/http-api`, so this package no longer keeps a second copy of them. Index the generated table by route, method, and status:
+Their shapes are generated from the app into `bonobo-plugin-sdk/http-api`, so this package no longer keeps a second copy of them. Index the generated table by route, method, and status, or take one route's whole answer union with `BonoboHttpResponse`:
 
 ```ts
-import type { BonoboHttpApi } from "bonobo-plugin-sdk/http-api";
+import type { BonoboHttpApi, BonoboHttpResponse } from "bonobo-plugin-sdk/http-api";
 
 type WriteBody = BonoboHttpApi["/api/v1/files/write"]["POST"]["body"];
 type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["body"];
+
+// Every status the route answers below 500, as `{ status, body }`. This is what `fetchJson`
+// resolves with, and what an own-fetch caller checks its own response against.
+type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
 
-0.16.0 breaks two things and ships no deprecated aliases:
+0.17.0 breaks two more things and ships no deprecated aliases:
+
+- `client.backend.invoke` and `BonoboBackendInvokeResult` are gone. Invoking the backend is `client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint, input })` and reading the status; see [Backend invoke](#backend-invoke-post-apiv1plugin-backendinvoke) for what each status means.
+- `client.fetchJson` takes the body as its own second parameter and resolves the route's own `{ status, body }` union instead of `unknown`. It no longer throws for a status the route declares, so a caller that read a refusal out of a caught `Error` now reads it off `res.body`.
+
+0.16.0 broke two things before that:
 
 - The `Bonobo*Request` and `Bonobo*Response` interfaces, and `BonoboPublicDoc`, are gone. The rules that lived in their doc blocks are in the table and the notes below it. Read the shapes off `BonoboHttpApi` instead.
 - `client.fetchJson` takes a generated route path instead of any `string`, and its `body` is typed from that path. A helper that forwards `path: string` and `body: unknown` no longer compiles; make it generic over the path, the way the "UI token API surface" section shows.
@@ -136,7 +145,7 @@ Where a run may write depends on how it started:
   - `files/download-urls` accepts only `[event.source.fileNodeId]` and signs the run's original asset.
   - `files/write` is Markdown-only and writes siblings of the upload: `path` must be an absolute `.md` path whose parent folder equals `event.source.path`'s parent folder.
   - `files/touch` creates those same siblings empty, so users see where the outputs will land before the run fills them. Every path follows the `files/write` rule above, and a later `files/write` fills the node it already made.
-- An invoke run (`event: "ui.invoke.requested"`, started by a frame through `client.backend.invoke`) has no source file. With `workspace.files.own-write`, its write authority is the plugin's own folder area instead: create or reuse a folder with `POST /api/v1/files/plugin-folders/ensure` (body `{ path, access?: { readOnly?: boolean, readScopeId?: string | null } }`, response `{ nodeId, path, created }`; the access fields need `workspace.files.own-access`), then write Markdown inside it with `files/write`. Every node it creates carries the plugin's ownership stamp, and a write whose existing folder chain does not carry the stamp answers `403`.
+- An invoke run (`event: "ui.invoke.requested"`, started by a frame through `POST /api/v1/plugin-backend/invoke`) has no source file. With `workspace.files.own-write`, its write authority is the plugin's own folder area instead: create or reuse a folder with `POST /api/v1/files/plugin-folders/ensure` (body `{ path, access?: { readOnly?: boolean, readScopeId?: string | null } }`, response `{ nodeId, path, created }`; the access fields need `workspace.files.own-access`), then write Markdown inside it with `files/write`. Every node it creates carries the plugin's ownership stamp, and a write whose existing folder chain does not carry the stamp answers `403`.
 - With `workspace.files.read`, any backend run may also call `POST /api/v1/files/list` and `POST /api/v1/files/read` (the same request and response shapes the developer API uses), reading with the acting member's visibility.
 - With `workspace.files.own-access`, a run may change access on its own stamped nodes through `POST /api/v1/files/plugin-access/set` (body `{ path, access: { readOnly?: boolean, readScopeId?: string | null } }` — `access` must set at least one field; response `{ nodeId }`): `readOnly: true` writes a plugin-named read-only lock members cannot remove, `readOnly: false` releases it, and `readScopeId` binds or releases the node's reader list against one of the plugin's private data scopes (the host keeps the file's readers equal to the scope members).
 - `POST /api/v1/files/plugin-archive` (body `{ path }`, response `{ archivedNodes }`) archives one of the plugin's own stamped folders or files with its subtree, releasing the plugin's own lock in the same call. A sealed service grant may call it too, for paths inside its destination.
@@ -250,7 +259,7 @@ A plugin frontend is trusted with the token and every datum its accepted permiss
 
 Importing the module does nothing by itself; the frame's entry code must call `bonobo_connect()` once and use the resolved client for everything after. A frame opened outside the host never gets past ready, by design. What the two fragment values are for: `parentOrigin` tells the SDK where to address `postMessage`, so it never sends with `"*"` — it is not authentication of the embedder (CSP `frame-ancestors` on the asset decides who may embed, and only the host's session mint produces a token). The nonce is a conversation id for one mount of one iframe: it proves the ready message came from a document that read this mount's fragment, it lets both sides drop late messages from an earlier mount, and because it sits in the URL a new mount always loads a fresh document. It is visible to the page and is not a secret.
 
-Token lifetimes, so plugin code never handles refresh itself: the session token lives 30 minutes, `getToken` refreshes it through the host when it is within 60 seconds of expiry, and a `fetchJson` call that meets a 401 refreshes once and retries once. A refresh rotates the token on the same session while it lives; when the session is already gone (the device slept past its expiry), the host mints a new session for the same frame and answers the refresh with its token, so the page keeps its state and its watches. The plugin-session JWT arrives beside the token (`jwt`, `jwtExpiresAt`) and expires with it; a refresh answers with both, and the Convex client's own ask for a new JWT shortly before expiry is what triggers that refresh. The session record on the host is the kill switch: revoking it (unmount, navigation away, uninstall, upgrade) ends every live subscription at once. Secrets never reach the frame — the token has no secrets scope and the SDK has no secrets API; a frame that needs one calls its backend through `backend.invoke`, and the backend reads it with `env.BONOBO.secrets.get`.
+Token lifetimes, so plugin code never handles refresh itself: the session token lives 30 minutes, `getToken` refreshes it through the host when it is within 60 seconds of expiry, and a `fetchJson` call that meets a 401 refreshes once and retries once. A refresh rotates the token on the same session while it lives; when the session is already gone (the device slept past its expiry), the host mints a new session for the same frame and answers the refresh with its token, so the page keeps its state and its watches. The plugin-session JWT arrives beside the token (`jwt`, `jwtExpiresAt`) and expires with it; a refresh answers with both, and the Convex client's own ask for a new JWT shortly before expiry is what triggers that refresh. The session record on the host is the kill switch: revoking it (unmount, navigation away, uninstall, upgrade) ends every live subscription at once. Secrets never reach the frame — the token has no secrets scope and the SDK has no secrets API; a frame that needs one calls its backend through `fetchJson("/api/v1/plugin-backend/invoke", ...)`, and the backend reads it with `env.BONOBO.secrets.get`. A plugin that would rather run its own `fetch` gets the same bearer from `client.authorize(headers?)` and does that one refresh itself; see [Using your own fetch](#using-your-own-fetch).
 
 On init, the SDK also opens the frame's own Convex client against `convexUrl` (see [Using the Convex client](#using-the-convex-client)). The SDK closes that client on `pagehide`. A frame the browser restores from its back/forward cache does not reconnect: subscriptions stay frozen until a real reload.
 
@@ -361,16 +370,51 @@ UI tokens are rejected on `/api/v1/files/write`.
 
 A UI token also reaches `POST /api/v1/plugin-data/read` and `/list` (with `plugin.data.read`), `POST /api/v1/plugin-backend/invoke` (with `plugin.backend.invoke`), and the same-origin `POST /plugins-ui/session-jwt` the SDK uses itself. Those seven routes are the whole UI surface.
 
-`client.fetchJson(path, init)` types `path` and `init.body` from the generated `BonoboHttpApi` table, so a path the host does not serve and a body field the route does not accept are compile errors:
+`client.fetchJson(path, body, init?)` is the one call a frame makes against those routes:
 
 ```ts
-// The body is checked against the app's own route schema.
-const page = await client.fetchJson("/api/v1/files/list", { body: { limit: 100, kind: "file" } });
+fetchJson<P extends BonoboHttpApiPath>(
+	path: P,
+	body: BonoboHttpApi[P]["POST"]["body"],
+	init?: Omit<RequestInit, "method" | "body">,
+): Promise<BonoboHttpResponse<P>>;
 ```
 
-The table holds every route a plugin's frame or backend run may reach. It does not hold the service-upload routes above, which only a sealed `psg_` grant may call. Because it holds the backend-run routes too, typing accepts a few paths a UI token cannot use: `/api/v1/files/write` compiles and still answers `403`. The seven routes above are the ones that work.
+All three types come from the generated `BonoboHttpApi` table, so a path the host does not serve and a body field the route does not accept are compile errors, and the answer is the route's own `{ status, body }` union. Narrow on `status` and the body narrows with it — success and refusal alike, with no cast and no second parser:
 
-`client.fetchJson(...)` answers `Promise<unknown>`. The value comes from outside the page, so check the shape before reading fields off it. The pagination rule below is the reason: a listing page may come back short or even empty while `isDone` is still `false`.
+```ts
+const res = await client.fetchJson("/api/v1/files/list", { limit: 100, kind: "file" });
+if (res.status === 200) {
+	// `res.body.items` is typed here, and nowhere else.
+	render(res.body.items);
+} else if (res.status === 429) {
+	// The refusal body is typed too, so the wait is readable without parsing an Error.
+	await wait(res.body.retryAfterMs ?? 3000);
+}
+```
+
+A status below `500` with a JSON body resolves like that. Four things reject instead, and they all mean the same thing to the caller: the route did not answer.
+
+- **A status of `500` or more.** It throws an `Error` carrying `status` and `responseText`. A `5xx` means the same thing to every caller, which is that the outcome is unknown, so only retry work that is safe to repeat. `BonoboHttpResponse` drops the `5xx` members for that reason — the type and the runtime say exactly the same thing.
+- **A body that is not JSON**, on any status, with the same `Error` shape. Every declared answer of every route is JSON, so a plain-text body means something other than the route answered — Convex's own router replies to an unrouted path that way, which is what a frame built against a newer route table meets on an older host.
+- **A session the host will not renew.** `getToken` and `refreshToken` reject when the host answers `bonobo:token-error` or stays silent for 10 seconds: the plugin was uninstalled, the member lost access, or the mint is rate-limited. That rejection travels out of `fetchJson` unchanged and carries no `status`.
+- **A network failure**, the way plain `fetch` rejects. It carries no `status` either.
+
+So a frame that must stay up through an uninstall still needs one `catch` around its calls. What it no longer needs is a `catch` to read a refusal: every status the route declares is an answer.
+
+`init` takes the rest of `RequestInit`: `signal`, extra `headers`, `keepalive`, `priority`, `cache`, `credentials`, `mode`, `referrer`, `referrerPolicy`, `integrity`. These are set after `init` is merged, so a caller's value never wins:
+
+| Field                              | Value                                                             |
+| ---------------------------------- | ----------------------------------------------------------------- |
+| `method`                           | always `POST`                                                     |
+| `body`                             | the `body` parameter, JSON-encoded                                |
+| `Authorization`                    | the session token, with one refresh-and-resend on a `401`         |
+| `Content-Type` and `Accept`        | `application/json`                                                |
+| `redirect`                         | `"error"` — following one would resend the bearer to another origin |
+
+`method`, `body` and `redirect` are removed from `init`'s type as well. The three headers cannot be: header names are case-insensitive, so the type cannot name them, and setting them last is the whole enforcement.
+
+The table holds every route a plugin's frame or backend run may reach. It does not hold the service-upload routes above, which only a sealed `psg_` grant may call. Because it holds the backend-run routes too, typing accepts a few paths a UI token cannot use: `/api/v1/files/write` compiles and still answers `403`. The seven routes above are the ones that work.
 
 `files/download-urls` accepts at most 100 file IDs in a 32 KB request, processes the first 20, and returns `{ items, errors, truncated }`.
 Each of the first 20 requested files consumes one call from the route's principal rate-limit
@@ -379,7 +423,33 @@ Duplicate file IDs are rejected with `400` before they consume route capacity or
 
 Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentTypePrefixes`, one request uses one bounded query. `scanLimit` sets its source-doc budget; the server defaults and caps it at 10,000 docs. The query does not set a byte-read cap. A page may come back short or even empty while `isDone` is still `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. Scan with `limit: 100`, `scanLimit: 10000`, and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor.
 
-### Backend invoke (`client.backend.invoke`)
+### Using your own fetch
+
+`fetchJson` is a convenience, not a gate. A plugin that wants its own request pipeline builds one from four members and the generated types, and the host cannot tell the difference:
+
+```ts
+import type { BonoboHttpApi } from "bonobo-plugin-sdk/http-api";
+
+const body: BonoboHttpApi["/api/v1/files/list"]["POST"]["body"] = { limit: 100, kind: "file" };
+let res = await fetch(client.apiOrigin + "/api/v1/files/list", {
+	method: "POST",
+	headers: await client.authorize({ "Content-Type": "application/json" }),
+	body: JSON.stringify(body),
+});
+if (res.status === 401) {
+	// One refresh and one resend. A second 401 means the session is gone, not stale.
+	await client.refreshToken();
+	res = await fetch(client.apiOrigin + "/api/v1/files/list", {
+		method: "POST",
+		headers: await client.authorize({ "Content-Type": "application/json" }),
+		body: JSON.stringify(body),
+	});
+}
+```
+
+`client.authorize(headers?)` returns a `Headers` carrying the current session bearer; it refreshes the token first when it is inside the 60-second margin, the same as `getToken`. `client.apiOrigin` is the host origin to prefix. `client.refreshToken()` is the one resend a `401` needs. `client.session.expiresAt()` versus `Date.now()` tells a lapsed session apart from a refused call, because the host answers both the same way. The SDK ships no other fetch wrapper.
+
+### Backend invoke (`POST /api/v1/plugin-backend/invoke`)
 
 With the `plugin.backend.invoke` capability, a frame may run the plugin's backend on demand. The manifest must declare the endpoints (at most 8; each `path` starts with `/`, is at most 256 printable ASCII characters, and may not use the reserved `/__bonobo_senate` prefix):
 
@@ -391,15 +461,36 @@ With the `plugin.backend.invoke` capability, a frame may run the plugin's backen
 }
 ```
 
-`client.backend.invoke({ endpoint, input?, serializationKey? })` names the endpoint by its `id`, POSTs `/api/v1/plugin-backend/invoke` on the UI token, and resolves — never rejects — with `BonoboBackendInvokeResult`: `{ _yay: { runId, pluginStatus, output, outputTruncated } }` or `{ _nay: { name, message, retryAfterMs? } }`. Since 0.16.0 the `_yay` branch is the route's own `200` body out of `BonoboHttpApi`, not a copy of it kept here. The backend receives a `BonoboInvokeRequestedEvent` at the endpoint's declared path — the normal run envelope plus `invoke: { endpointId, serializationKey, input }` — and answers with its own response body: `pluginStatus` is that response's status, and a non-2xx `pluginStatus` still resolves `_yay`, because the plugin did answer. The whole invoke request body may be at most 32 KiB.
+Invoking it is `fetchJson` on that route, like every other route. 0.17.0 deleted `client.backend.invoke` and `BonoboBackendInvokeResult` with no alias: they were a second wrapper over one route, and they folded its statuses into five names the SDK made up.
+
+```ts
+const res = await client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh", input });
+if (res.status === 200) {
+	// The backend answered. `pluginStatus` is its own HTTP status, `output` its response body
+	// text (`outputTruncated` when the host cut it at its byte cap), and `runId` names the run
+	// record for support. A non-2xx `pluginStatus` is still a `200` here — the backend did
+	// answer, and what its answer means is the plugin's own contract.
+	handle(res.body.pluginStatus, res.body.output);
+}
+```
+
+The backend receives a `BonoboInvokeRequestedEvent` at the endpoint's declared path — the normal run envelope plus `invoke: { endpointId, serializationKey, input }`. The whole invoke request body may be at most 32 KiB.
 
 Three rules for a plugin that uses it:
 
 - **Identity.** The backend must read who is acting from the envelope's `actorUserId` only — never from `input`, which any page code can fill with anything.
-- **Idempotency (the honest limit).** The host dedupes nothing: a retried call runs the backend again. The store and the file system are two systems with one transaction each, so a backend that writes both can crash in between and leave one of them written. Put a client request id inside `input` and dedupe in your own store writes, so a retry after an `unavailable` answer cannot apply the same work twice.
-- **Serialization.** An endpoint with `serialization: "installation"` runs one invoke at a time for the whole installation; `"caller-key"` serializes per `serializationKey` (required then, at most 128 characters). A call that finds one already running resolves `_nay` with `name: "busy"` and `retryAfterMs` — wait and retry.
+- **Idempotency (the honest limit).** The host dedupes nothing: a retried call runs the backend again. The store and the file system are two systems with one transaction each, so a backend that writes both can crash in between and leave one of them written. Put a client request id inside `input` and dedupe in your own store writes, so a retry after a thrown `5xx` cannot apply the same work twice.
+- **Serialization.** An endpoint with `serialization: "installation"` runs one invoke at a time for the whole installation; `"caller-key"` serializes per `serializationKey` (required then, at most 128 characters). A call that finds one already running answers `409`.
 
-`_nay.name` vocabulary: `busy` (a serialization conflict or the rate limit, with `retryAfterMs`), `denied` (the capability is not accepted or the frame's access is gone), `session_expired` (reload the frame), `invalid` (the request was refused — malformed, or too large for this plugin's configuration), and `unavailable` (a transport failure or a failed backend run — the outcome is unknown, so only retry work that is safe to repeat).
+What each refusal means, replacing the old `_nay.name` vocabulary:
+
+| Answer                | Meaning                                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `409`                 | The serialization lock is held. `body.retryAfterMs` says how long to wait.                                                                                                            |
+| `429`                 | A rate limit. `body.retryAfterMs` carries the wait when the limiter set one; the plugin API call limit answers without it, so allow for a missing hint.                                |
+| `401` / `403`         | The server answers the same for a lapsed session and a revoked plugin. `client.session.expiresAt()` versus `Date.now()` is the whole difference: past it, reload; before it, the frame lost access. |
+| `400` / `404` / `413` | The request was refused — an unknown endpoint, a missing `serializationKey`, a body too large. `body.message` says why.                                                                |
+| a rejection           | A thrown `5xx`, including this route's own `502`: the backend did not run, or the host failed. A non-JSON body, a refused session refresh, or a network failure reject too. In every case the outcome is unknown, so only retry work that is safe to repeat. |
 
 ### Frontend page example
 
@@ -420,49 +511,34 @@ let cursor = null;
 let isDone = false;
 const images = [];
 for (let pages = 0; images.length < 48 && !isDone && pages < 30; pages += 1) {
-	let page;
+	let res;
 	for (let attempt = 0; ; attempt += 1) {
-		try {
-			page = await client.fetchJson("/api/v1/files/list", {
-				body: {
-					path: "/",
-					recursive: true,
-					kind: "file",
-					limit: 100,
-					scanLimit: 10_000,
-					contentTypePrefixes: ["image/"],
-					cursor,
-				},
-			});
-			break;
-		} catch (error) {
-			// fetchJson rejects with an Error carrying `status` only on a non-ok response. A
-			// network failure rejects with something else, so read `status` only after checking
-			// for it — the video player's `get_error_status` is this same guard as a helper.
-			const status =
-				error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : undefined;
-			// Rate limited: back off and retry the same cursor — the page is not lost and the
-			// retries do not consume the page budget. Give up after two waits so a persistent
-			// 429 surfaces instead of looping forever.
-			if (status === 429 && attempt < 2) {
-				await new Promise((resolve) => setTimeout(resolve, [3000, 6000][attempt]));
-				continue;
-			}
-			throw error;
+		res = await client.fetchJson("/api/v1/files/list", {
+			path: "/",
+			recursive: true,
+			kind: "file",
+			limit: 100,
+			scanLimit: 10_000,
+			contentTypePrefixes: ["image/"],
+			cursor,
+		});
+		// Rate limited: back off and retry the same cursor — the page is not lost and the
+		// retries do not consume the page budget. Give up after two waits so a persistent
+		// 429 surfaces instead of looping forever.
+		if (res.status === 429 && attempt < 2) {
+			await new Promise((resolve) => setTimeout(resolve, [3000, 6000][attempt]));
+			continue;
 		}
+		break;
 	}
-	// fetchJson answers `unknown` — this body came from outside the page, so check its shape
-	// before reading fields off it. Council's `as_record` is this same guard as a helper.
-	const listing =
-		typeof page === "object" && page !== null && !Array.isArray(page)
-			? /** @type {{ items?: unknown, cursor?: unknown, isDone?: unknown }} */ (page)
-			: null;
-	if (!listing || !Array.isArray(listing.items)) {
-		throw new Error("/api/v1/files/list answered an unexpected shape");
+	// Every status the route declares is an answer, so narrowing on it is the whole check. The
+	// body is typed from that status, and there is nothing left to parse by hand.
+	if (res.status !== 200) {
+		throw new Error(`/api/v1/files/list refused with ${res.status}: ${res.body.message}`);
 	}
-	images.push(...listing.items);
-	cursor = typeof listing.cursor === "string" ? listing.cursor : null;
-	isDone = listing.isDone === true;
+	images.push(...res.body.items);
+	cursor = res.body.cursor;
+	isDone = res.body.isDone;
 }
 // Show the first 48; keep the overflow plus `cursor` for the next "load more".
 ```

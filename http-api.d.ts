@@ -1510,3 +1510,23 @@ export type BonoboHttpApi = {
 };
 
 export type BonoboHttpApiPath = keyof BonoboHttpApi;
+
+export type BonoboHttpResponse<P extends BonoboHttpApiPath> = {
+	[S in keyof BonoboHttpApi[P]["POST"]["response"]]: S extends
+		| 500
+		| 501
+		| 502
+		| 503
+		| 504
+		| 505
+		| 506
+		| 507
+		| 508
+		| 510
+		| 511
+		? never
+		: {
+				status: S;
+				body: BonoboHttpApi[P]["POST"]["response"][S]["body"];
+			};
+}[keyof BonoboHttpApi[P]["POST"]["response"]];

@@ -1,7 +1,7 @@
 import type { ConvexReactClient } from "convex/react";
 import type { GenericId } from "convex/values";
 import type { BonoboConvexApi } from "bonobo-plugin-sdk/convex-api";
-import type { BonoboHttpApi, BonoboHttpApiPath } from "bonobo-plugin-sdk/http-api";
+import type { BonoboHttpApi, BonoboHttpApiPath, BonoboHttpResponse } from "bonobo-plugin-sdk/http-api";
 
 /**
  * Sent by the frame to `window.parent` at the exact `parentOrigin` from the URL fragment once the
@@ -250,25 +250,50 @@ export interface BonoboClient {
 	 */
 	refreshToken(): Promise<string>;
 	/**
-	 * `fetch` against `apiOrigin + path` with `Authorization: Bearer <token>`. When `init.body`
-	 * is set it is JSON-encoded and sent with `Content-Type: application/json`, and the default
-	 * method is `POST`; without a body the default method is `GET`. On a `401` the client
-	 * refreshes the token and retries exactly once. Ok responses resolve with the parsed JSON
-	 * body; non-ok responses throw an `Error` carrying `status` and `responseText`.
+	 * `POST apiOrigin + path` with `body` as JSON, and the route's own answer back.
 	 *
-	 * `path` and `init.body` are typed from the app's own route table
-	 * ({@link BonoboHttpApi}, generated into `bonobo-plugin-sdk/http-api`), so a path the host does
-	 * not serve and a body field the route does not accept are both compile errors.
+	 * `path` and `body` are typed from the app's own route table ({@link BonoboHttpApi}, generated
+	 * into `bonobo-plugin-sdk/http-api`), so a path the host does not serve and a body field the
+	 * route does not accept are both compile errors. The result is that route's own
+	 * {@link BonoboHttpResponse} union, so narrowing on `status` narrows `body` to the shape the
+	 * route answers for that status — success and refusal alike, with no second parser.
+	 *
+	 * A status below `500` with a JSON body resolves. Four things reject instead, and they all mean
+	 * the same thing to the caller: the route did not answer.
+	 *
+	 * - A status of `500` or more. It throws an `Error` carrying `status` and `responseText`. A
+	 *   `5xx` means the same thing to every caller, which is that the outcome is unknown. The
+	 *   generated union drops its `5xx` members for that reason, so the type and the runtime say
+	 *   the same thing — a resolved answer is always a declared status with a typed body.
+	 * - A body that is not JSON, on any status, with the same `Error` shape. Every declared answer
+	 *   of every route is JSON, so a plain-text body means something other than the route answered.
+	 *   Convex's own router replies to an unrouted path that way, which is what a frame built
+	 *   against a newer route table meets on an older host.
+	 * - A session the host will not renew. `getToken` and `refreshToken` reject when the host
+	 *   answers {@link BonoboTokenErrorMessage} or stays silent for 10 seconds — the plugin was
+	 *   uninstalled, the member lost access, or the mint is rate-limited. That rejection travels
+	 *   out of `fetchJson` unchanged and carries no `status`.
+	 * - A network failure, the way plain `fetch` rejects. It carries no `status` either.
+	 *
+	 * `init` takes the rest of `RequestInit`: `signal`, extra `headers`, `keepalive`, `priority`,
+	 * `cache`, `credentials`, `mode`, `referrer`, `referrerPolicy`, `integrity`. These are set
+	 * after `init` is merged, so a caller's value never wins:
+	 *
+	 * - `method` — always `POST`.
+	 * - `body` — the `body` parameter, JSON-encoded.
+	 * - `Authorization` — the session token, with one refresh-and-resend on a `401`.
+	 * - `Content-Type` and `Accept` — `application/json`.
+	 * - `redirect: "error"` — following a redirect would resend the bearer to another origin, and
+	 *   no route redirects.
+	 *
+	 * `method`, `body` and `redirect` are removed from `init`'s type as well. The three headers
+	 * cannot be: header names are case-insensitive, so the type cannot name them, and setting them
+	 * last is the whole enforcement.
 	 *
 	 * That table also holds the routes only the plugin's backend run may call. A UI token reaches
 	 * seven: the three file routes named above, `/api/v1/plugin-data/read` and `/list`,
 	 * `/api/v1/plugin-backend/invoke`, and `/plugins-ui/session-jwt`. Typing accepts the rest, and
 	 * the host still answers `403`. The README's "UI token API surface" section is the list.
-	 *
-	 * The result is `unknown` on purpose. It is whatever the API answered, so the page has to
-	 * check the shape before reading it. The pagination note below is the reason: a listing page
-	 * may come back short or even empty, and a type that let you read `.items` straight away
-	 * would hide that.
 	 *
 	 * Pagination: with `contentTypePrefixes`, one `/api/v1/files/list` request uses one bounded
 	 * query. `scanLimit` sets its source-doc budget; the server defaults and caps it at 10,000 docs.
@@ -280,38 +305,19 @@ export interface BonoboClient {
 	 */
 	fetchJson<P extends BonoboHttpApiPath>(
 		path: P,
-		init?: { method?: string; headers?: Record<string, string>; body?: BonoboHttpApi[P]["POST"]["body"] },
-	): Promise<unknown>;
+		body: BonoboHttpApi[P]["POST"]["body"],
+		init?: Omit<RequestInit, "method" | "body" | "redirect">,
+	): Promise<BonoboHttpResponse<P>>;
 	/**
-	 * The plugin's own backend, run on demand. Needs the `plugin.backend.invoke` capability and a
-	 * manifest `backend.endpoints` entry whose `id` matches `endpoint`.
+	 * A `Headers` object carrying the current session bearer, for a plugin that calls the host with
+	 * its own `fetch` instead of `fetchJson`. Any headers passed in are kept; `Authorization` is
+	 * set last and replaces one of that name.
+	 *
+	 * With `apiOrigin`, {@link BonoboHttpApi} for the request and answer types, and `refreshToken`
+	 * for the one resend a `401` needs, this is everything an own-fetch caller uses. The README's
+	 * "Using your own fetch" section is the whole recipe.
 	 */
-	backend: {
-		/**
-		 * Runs the plugin's backend synchronously through the host's
-		 * `/api/v1/plugin-backend/invoke` route and resolves with the backend's relayed response.
-		 * The call never rejects — every refusal resolves `_nay`
-		 * ({@link BonoboBackendInvokeResult}).
-		 *
-		 * The backend's `fetch` receives `POST https://plugin.local<endpoint.path>` with the
-		 * event envelope in the body (`event: "ui.invoke.requested"`); `input` travels inside that
-		 * envelope untouched. The raw request body is capped at 32 KiB. Two rules the page and the
-		 * backend must follow together:
-		 *
-		 * - **Identity**: the backend reads who is acting from the envelope's `actorUserId` ONLY.
-		 *   `input` is page data — any code running in the frame can fill it with anything, so an
-		 *   identity inside it proves nothing.
-		 * - **Idempotency**: the store and the file system are two systems, one transaction each,
-		 *   so a backend writing both can crash in between and the page may retry. Put a client
-		 *   request id inside `input` and make the backend's store writes safe to repeat (for
-		 *   example `clientRequestId` on appends); the invoke door itself dedupes nothing.
-		 *
-		 * At most one invoke run is live per installation (or per `serializationKey` on an
-		 * endpoint declared `serialization: "caller-key"`, where the key is required). A concurrent
-		 * second invoke resolves `_nay` `busy` with `retryAfterMs`; wait and call again.
-		 */
-		invoke(opts: { endpoint: string; input?: unknown; serializationKey?: string }): Promise<BonoboBackendInvokeResult>;
-	};
+	authorize(headers?: HeadersInit): Promise<Headers>;
 	/**
 	 * The host's theme. The SDK has already applied it to this document: every token sits on
 	 * `document.documentElement.style` under its own name, and the root element carries the same
@@ -377,31 +383,6 @@ export interface BonoboClient {
 		fetchJwt(args?: { forceRefreshToken: boolean }): Promise<string | null>;
 	};
 }
-
-/**
- * The result of one backend invoke. Like a data write it resolves rather than rejects.
- *
- * `_yay` relays the backend's own response: `pluginStatus` is the HTTP status the plugin's `fetch`
- * answered, `output` its response body text (`outputTruncated` when the host cut it at its byte
- * cap), and `runId` names the run record for support and debugging. A `pluginStatus` outside 2xx
- * still resolves `_yay` — the backend answered; what its answer means is the plugin's own
- * contract.
- *
- * `_nay.name` is `"busy"` for the serialization lock and the invoke rate bucket alike (both carry
- * `retryAfterMs`; wait and call again), `"denied"` when the workspace has not accepted
- * `plugin.backend.invoke` or the plugin may not act here any more, `"session_expired"` when this
- * frame's session lapsed, `"invalid"` for a refused request (an unknown endpoint, a missing
- * `serializationKey`, an over-large body), and `"unavailable"` when the backend failed or the
- * outcome is unknown — the run may or may not have happened, which is why store writes must be
- * safe to repeat.
- *
- * `_yay` is the invoke route's own `200` body, read out of the generated {@link BonoboHttpApi}
- * instead of copied here. The SDK used to keep a second hand-written copy of those fields. A copy
- * can fall behind the app without anything failing.
- */
-export type BonoboBackendInvokeResult =
-	| { _yay: BonoboHttpApi["/api/v1/plugin-backend/invoke"]["POST"]["response"][200]["body"] }
-	| { _nay: { name: string; message: string; retryAfterMs?: number } };
 
 /**
  * Connects the frame to the embedding host app. It installs one shared `message` listener (for
