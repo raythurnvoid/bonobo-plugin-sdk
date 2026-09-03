@@ -105,15 +105,20 @@ import type { BonoboHttpApi, BonoboHttpResponse } from "bonobo-plugin-sdk/http-a
 type WriteBody = BonoboHttpApi["/api/v1/files/write"]["POST"]["body"];
 type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["body"];
 
-// Every status the route answers below 500, as `{ status, body }`. This is what `fetchJson`
-// resolves with, and what an own-fetch caller checks its own response against.
+// Every status the route answers, as `{ status, body }`, with `body` typed from that status or
+// `null`. This is what `fetchJson` resolves with, and what an own-fetch caller checks its own
+// response against.
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
+
+0.18.0 changes one thing, and it reverses a 0.17.0 decision:
+
+- `client.fetchJson` resolves **every** HTTP answer, the way plain `fetch` hands one back. A `5xx` resolves like a `200`, and a body that is not JSON resolves as `body: null`. Only a missing answer rejects: a network failure, an aborted `signal`, a refused redirect, or a session the host will not renew. Every member of `BonoboHttpResponse` therefore types `body` as `| null`, and the union no longer drops its `5xx` members. A caller that treated a thrown `5xx` as "unknown outcome" now writes that decision itself: `if (res.status >= 500 || res.body === null)`.
 
 0.17.0 breaks two more things and ships no deprecated aliases:
 
 - `client.backend.invoke` and `BonoboBackendInvokeResult` are gone. Invoking the backend is `client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint, input })` and reading the status; see [Backend invoke](#backend-invoke-post-apiv1plugin-backendinvoke) for what each status means.
-- `client.fetchJson` takes the body as its own second parameter and resolves the route's own `{ status, body }` union instead of `unknown`. It no longer throws for a status the route declares, so a caller that read a refusal out of a caught `Error` now reads it off `res.body`.
+- `client.fetchJson` takes the body as its own second parameter and resolves the route's own `{ status, body }` union instead of `unknown`, so a caller that read a refusal out of a caught `Error` now reads it off `res.body`. (0.17.0 still threw a `5xx` and a non-JSON body; 0.18.0 resolves those too.)
 
 0.16.0 broke two things before that:
 
@@ -376,7 +381,7 @@ A UI token also reaches `POST /api/v1/plugin-data/read` and `/list` (with `plugi
 fetchJson<P extends BonoboHttpApiPath>(
 	path: P,
 	body: BonoboHttpApi[P]["POST"]["body"],
-	init?: Omit<RequestInit, "method" | "body">,
+	init?: Omit<RequestInit, "method" | "body" | "redirect">,
 ): Promise<BonoboHttpResponse<P>>;
 ```
 
@@ -384,23 +389,34 @@ All three types come from the generated `BonoboHttpApi` table, so a path the hos
 
 ```ts
 const res = await client.fetchJson("/api/v1/files/list", { limit: 100, kind: "file" });
-if (res.status === 200) {
+if (res.status === 200 && res.body !== null) {
 	// `res.body.items` is typed here, and nowhere else.
 	render(res.body.items);
 } else if (res.status === 429) {
-	// The refusal body is typed too, so the wait is readable without parsing an Error.
-	await wait(res.body.retryAfterMs ?? 3000);
+	// The refusal body is typed too, so the wait is readable without parsing an Error. It is
+	// `?.` because any answer can arrive with a body that would not parse.
+	await wait(res.body?.retryAfterMs ?? 3000);
 }
 ```
 
-A status below `500` with a JSON body resolves like that. Four things reject instead, and they all mean the same thing to the caller: the route did not answer.
+**Every HTTP answer resolves like that, whatever its status.** A `500` resolves the same as a `200`, and what a status means is the caller's decision, not the SDK's. `body` is the parsed JSON when the text parses and `null` when it does not, which is why every member types `body` as `| null`. A plain-text answer is a value too: Convex's own router replies to an unrouted path that way — what a frame built against a newer route table meets on an older host — and it arrives as `{ status: 404, body: null }`.
 
-- **A status of `500` or more.** It throws an `Error` carrying `status` and `responseText`. A `5xx` means the same thing to every caller, which is that the outcome is unknown, so only retry work that is safe to repeat. `BonoboHttpResponse` drops the `5xx` members for that reason — the type and the runtime say exactly the same thing.
-- **A body that is not JSON**, on any status, with the same `Error` shape. Every declared answer of every route is JSON, so a plain-text body means something other than the route answered — Convex's own router replies to an unrouted path that way, which is what a frame built against a newer route table meets on an older host.
-- **A session the host will not renew.** `getToken` and `refreshToken` reject when the host answers `bonobo:token-error` or stays silent for 10 seconds: the plugin was uninstalled, the member lost access, or the mint is rate-limited. That rejection travels out of `fetchJson` unchanged and carries no `status`.
-- **A network failure**, the way plain `fetch` rejects. It carries no `status` either.
+Only two things reject, because neither one produced an answer to hand back.
 
-So a frame that must stay up through an uninstall still needs one `catch` around its calls. What it no longer needs is a `catch` to read a refusal: every status the route declares is an answer.
+- **`fetch` itself**: a network failure, an aborted `signal`, or a refused redirect. Those rejections pass through untouched and carry no `status`.
+- **A session the host will not renew.** `getToken` and `refreshToken` reject when the host answers `bonobo:token-error` or stays silent for 10 seconds: the plugin was uninstalled, the member lost access, or the mint is rate-limited. That rejection travels out of `fetchJson` unchanged and carries no `status` either.
+
+So a frame that must stay up through an uninstall still needs one `catch` around its calls. What it no longer needs is a `catch` to read anything the server said.
+
+A caller that cannot act on a `5xx` writes that itself, in one line, and the same line covers a body it cannot read:
+
+```ts
+if (res.status >= 500 || res.body === null) {
+	// The outcome is unknown. Only retry work that is safe to repeat.
+}
+```
+
+A status the route does not declare — a gateway `503`, say — resolves like any other answer, and its body parses the same way: `null` for an HTML page, the parsed object for a JSON one. The union does not name that status. That is on purpose: a catch-all `{ status: number; body: null }` member would stop `res.status === 200` from narrowing `res.body`, because `number` includes `200`. So `res.body === null` tells you the text did not parse. It never tells you the status was undeclared — check the status itself for that.
 
 `init` takes the rest of `RequestInit`: `signal`, extra `headers`, `keepalive`, `priority`, `cache`, `credentials`, `mode`, `referrer`, `referrerPolicy`, `integrity`. These are set after `init` is merged, so a caller's value never wins:
 
@@ -465,7 +481,14 @@ Invoking it is `fetchJson` on that route, like every other route. 0.17.0 deleted
 
 ```ts
 const res = await client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh", input });
-if (res.status === 200) {
+if (res.status !== 200) {
+	// A refusal, or a `5xx` the host answered. `body` is `null` when it would not parse.
+	report(res.status, res.body?.message ?? "no JSON body");
+} else if (res.body === null) {
+	// A `200` whose body would not parse. Rare, but the member is waiting for an answer, so this
+	// branch must exist.
+	report(200, "the answer was not JSON");
+} else {
 	// The backend answered. `pluginStatus` is its own HTTP status, `output` its response body
 	// text (`outputTruncated` when the host cut it at its byte cap), and `runId` names the run
 	// record for support. A non-2xx `pluginStatus` is still a `200` here — the backend did
@@ -479,7 +502,7 @@ The backend receives a `BonoboInvokeRequestedEvent` at the endpoint's declared p
 Three rules for a plugin that uses it:
 
 - **Identity.** The backend must read who is acting from the envelope's `actorUserId` only — never from `input`, which any page code can fill with anything.
-- **Idempotency (the honest limit).** The host dedupes nothing: a retried call runs the backend again. The store and the file system are two systems with one transaction each, so a backend that writes both can crash in between and leave one of them written. Put a client request id inside `input` and dedupe in your own store writes, so a retry after a thrown `5xx` cannot apply the same work twice.
+- **Idempotency (the honest limit).** The host dedupes nothing: a retried call runs the backend again. The store and the file system are two systems with one transaction each, so a backend that writes both can crash in between and leave one of them written. Put a client request id inside `input` and dedupe in your own store writes, so a retry after a `5xx` cannot apply the same work twice.
 - **Serialization.** An endpoint with `serialization: "installation"` runs one invoke at a time for the whole installation; `"caller-key"` serializes per `serializationKey` (required then, at most 128 characters). A call that finds one already running answers `409`.
 
 What each refusal means, replacing the old `_nay.name` vocabulary:
@@ -490,7 +513,8 @@ What each refusal means, replacing the old `_nay.name` vocabulary:
 | `429`                 | A rate limit. `body.retryAfterMs` carries the wait when the limiter set one; the plugin API call limit answers without it, so allow for a missing hint.                                |
 | `401` / `403`         | The server answers the same for a lapsed session and a revoked plugin. `client.session.expiresAt()` versus `Date.now()` is the whole difference: past it, reload; before it, the frame lost access. |
 | `400` / `404` / `413` | The request was refused — an unknown endpoint, a missing `serializationKey`, a body too large. `body.message` says why.                                                                |
-| a rejection           | A thrown `5xx`, including this route's own `502`: the backend did not run, or the host failed. A non-JSON body, a refused session refresh, or a network failure reject too. In every case the outcome is unknown, so only retry work that is safe to repeat. |
+| `502`                 | The backend did not run, or the host failed. It resolves like any other answer, with `body?.message` and `body?.runId`. So does any other `5xx`, and so does an answer whose body will not parse (`body` is `null` then). The outcome is unknown in all of these, so only retry work that is safe to repeat. |
+| a rejection           | No answer at all: a network failure, an aborted `signal`, or a session the host will not renew. Same rule — the outcome is unknown.                                                    |
 
 ### Frontend page example
 
@@ -531,10 +555,14 @@ for (let pages = 0; images.length < 48 && !isDone && pages < 30; pages += 1) {
 		}
 		break;
 	}
-	// Every status the route declares is an answer, so narrowing on it is the whole check. The
-	// body is typed from that status, and there is nothing left to parse by hand.
+	// Every answer is a value, so narrowing on the status is the whole check. The body is typed
+	// from that status, and there is nothing left to parse by hand. It is still `| null`,
+	// because a body that would not parse arrives that way on any status.
 	if (res.status !== 200) {
-		throw new Error(`/api/v1/files/list refused with ${res.status}: ${res.body.message}`);
+		throw new Error(`/api/v1/files/list refused with ${res.status}: ${res.body?.message ?? "no JSON body"}`);
+	}
+	if (res.body === null) {
+		throw new Error("/api/v1/files/list answered 200 with a body that is not JSON");
 	}
 	images.push(...res.body.items);
 	cursor = res.body.cursor;

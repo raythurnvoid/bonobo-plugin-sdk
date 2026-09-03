@@ -258,22 +258,27 @@ export interface BonoboClient {
 	 * {@link BonoboHttpResponse} union, so narrowing on `status` narrows `body` to the shape the
 	 * route answers for that status — success and refusal alike, with no second parser.
 	 *
-	 * A status below `500` with a JSON body resolves. Four things reject instead, and they all mean
-	 * the same thing to the caller: the route did not answer.
+	 * Every HTTP answer resolves, the way plain `fetch` hands one back. A `500` resolves like a
+	 * `200`, and the caller decides what the status means. `body` is the parsed JSON when the text
+	 * parses and `null` when it does not, so every member of the union types `body` as `| null`.
+	 * A plain-text answer is a value too: Convex's own router replies to an unrouted path that way,
+	 * which is what a frame built against a newer route table meets on an older host, and it
+	 * arrives as `{ status: 404, body: null }`.
 	 *
-	 * - A status of `500` or more. It throws an `Error` carrying `status` and `responseText`. A
-	 *   `5xx` means the same thing to every caller, which is that the outcome is unknown. The
-	 *   generated union drops its `5xx` members for that reason, so the type and the runtime say
-	 *   the same thing — a resolved answer is always a declared status with a typed body.
-	 * - A body that is not JSON, on any status, with the same `Error` shape. Every declared answer
-	 *   of every route is JSON, so a plain-text body means something other than the route answered.
-	 *   Convex's own router replies to an unrouted path that way, which is what a frame built
-	 *   against a newer route table meets on an older host.
+	 * Two things reject, because neither one produced an answer to hand back.
+	 *
+	 * - `fetch` itself: a network failure, an aborted `signal`, or a refused redirect. Those
+	 *   rejections pass through untouched and carry no `status`.
 	 * - A session the host will not renew. `getToken` and `refreshToken` reject when the host
 	 *   answers {@link BonoboTokenErrorMessage} or stays silent for 10 seconds — the plugin was
 	 *   uninstalled, the member lost access, or the mint is rate-limited. That rejection travels
-	 *   out of `fetchJson` unchanged and carries no `status`.
-	 * - A network failure, the way plain `fetch` rejects. It carries no `status` either.
+	 *   out of `fetchJson` unchanged and carries no `status` either.
+	 *
+	 * A status the route does not declare — a gateway `503`, say — resolves like any other answer,
+	 * and its body parses the same way: `null` for an HTML page, the parsed object for a JSON one.
+	 * The union does not name that status, because a catch-all `{ status: number; body: null }`
+	 * member would stop `status === 200` from narrowing `body`, `number` including `200`. So
+	 * `body === null` means the text did not parse; it never means the status was undeclared.
 	 *
 	 * `init` takes the rest of `RequestInit`: `signal`, extra `headers`, `keepalive`, `priority`,
 	 * `cache`, `credentials`, `mode`, `referrer`, `referrerPolicy`, `integrity`. These are set

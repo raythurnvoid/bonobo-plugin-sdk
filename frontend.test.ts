@@ -310,17 +310,13 @@ describe("bonobo_connect", () => {
 			expect({ routePath, hasPost: block.includes("\n\t\tPOST: {") }).toEqual({ routePath, hasPost: true });
 		}
 
-		// `BonoboHttpResponse` drops the statuses `fetchJson` throws instead of resolving. The
-		// runtime tests `status >= 500`; a conditional type cannot, so the generator spells the
-		// codes out. Read every 5xx the table declares and require the list to name it, or the
-		// union would keep a member no caller can ever reach.
-		const droppedStatuses = generated.match(/^export type BonoboHttpResponse[^]*?\n\t\t\? never$/m)?.[0] ?? "";
-		const declaredStatuses = new Set([...generated.matchAll(/^\t{4}(\d{3}): \{$/gm)].map((match) => match[1]!));
-		const declared5xx = [...declaredStatuses].filter((status) => Number(status) >= 500).sort();
-		expect(declared5xx.length).toBeGreaterThan(0);
-		for (const status of declared5xx) {
-			expect({ status, dropped: droppedStatuses.includes(`| ${status}\n`) }).toEqual({ status, dropped: true });
-		}
+		// `BonoboHttpResponse` keeps every declared status, 5xx included, because `fetchJson`
+		// resolves every answer. It also types each `body` as `| null`, the value a body that is
+		// not JSON parses to. Both are runtime promises the type has to repeat, so read them back
+		// out of the generated file.
+		const responseUnion = generated.match(/^export type BonoboHttpResponse[^]*?\n}\[keyof .*\];$/m)?.[0] ?? "";
+		expect(responseUnion).toContain('body: BonoboHttpApi[P]["POST"]["response"][S]["body"] | null;');
+		expect(responseUnion).not.toContain("never");
 
 		// The app resolves the schema before it is printed, so nothing here may still point back at
 		// the app's own type names, and no property may carry the `readonly` its `as const` handlers
@@ -568,7 +564,7 @@ describe("bonobo_connect", () => {
 		await expect(secondRefresh).resolves.toBe("plu_3");
 	});
 
-	test("resolves a declared status instead of throwing, and throws every 5xx", async () => {
+	test("resolves every answer, whatever its status", async () => {
 		const client = await connect_client();
 		const fetchMock = vi.fn((_url: string, _init: RequestInit): Promise<Response> => {
 			throw new Error("not stubbed");
@@ -588,35 +584,64 @@ describe("bonobo_connect", () => {
 			body: { message: "Rate limit exceeded", retryAfterMs: 1500 },
 		});
 
-		// A 5xx is the one outcome no caller can act on, so it stays a throw whether the route
-		// declares that status or not. The invoke route declares 502; it throws all the same, and
-		// the generated union drops the member to match.
-		fetchMock.mockResolvedValueOnce(new Response("gateway", { status: 502 }));
-		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).rejects.toMatchObject({
+		// A 5xx is an answer like any other. The SDK used to throw it, which decided for every
+		// caller that the outcome was unknown; that decision belongs to the caller. The invoke
+		// route declares 502, and the generated union keeps the member.
+		fetchMock.mockResolvedValueOnce(
+			new Response(JSON.stringify({ message: "Plugin backend failed" }), {
+				status: 502,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).resolves.toEqual({
 			status: 502,
-			responseText: "gateway",
+			body: { message: "Plugin backend failed" },
 		});
 
-		fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }));
-		await expect(client.fetchJson("/api/v1/files/list", { limit: 1 })).rejects.toMatchObject({
-			status: 500,
-			responseText: "boom",
+		// A status the route does not declare, with a JSON body: a gateway between the frame and
+		// the app answers its own error object. `files/list` declares no 5xx at all. It resolves
+		// with the parsed body, so `body === null` never doubles as "this status is undeclared".
+		fetchMock.mockResolvedValueOnce(
+			new Response(JSON.stringify({ error: "upstream" }), {
+				status: 503,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		await expect(client.fetchJson("/api/v1/files/list", { limit: 1 })).resolves.toEqual({
+			status: 503,
+			body: { error: "upstream" },
 		});
 	});
 
-	test("throws with the status when a sub-500 answer is not JSON", async () => {
+	test("resolves a body that is not JSON as null, on any status", async () => {
 		const client = await connect_client();
-		// Convex's own router answers an unrouted path with plain text and a 404. A frame built
-		// against a route table newer than the deployment it runs on meets exactly that. The status
-		// and the raw text must survive, or the page cannot tell it apart from a network failure.
-		const fetchMock = vi.fn(() =>
-			Promise.resolve(new Response("No HttpAction routed for /api/v1/files/list", { status: 404 })),
-		);
+		const fetchMock = vi.fn((_url: string, _init: RequestInit): Promise<Response> => {
+			throw new Error("not stubbed");
+		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		await expect(client.fetchJson("/api/v1/files/list", { limit: 1 })).rejects.toMatchObject({
+		// Convex's own router answers an unrouted path with plain text and a 404. A frame built
+		// against a route table newer than the deployment it runs on meets exactly that. It is an
+		// answer, so it resolves; the text does not parse, so the body is null.
+		fetchMock.mockResolvedValueOnce(new Response("No HttpAction routed for /api/v1/files/list", { status: 404 }));
+		await expect(client.fetchJson("/api/v1/files/list", { limit: 1 })).resolves.toEqual({
 			status: 404,
-			responseText: "No HttpAction routed for /api/v1/files/list",
+			body: null,
+		});
+
+		// A plain-text 5xx takes the same path: a gateway between the frame and the app answers
+		// HTML or text, and the caller still gets to read the status.
+		fetchMock.mockResolvedValueOnce(new Response("<html>Bad gateway</html>", { status: 502 }));
+		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).resolves.toEqual({
+			status: 502,
+			body: null,
+		});
+
+		// An empty body is not JSON either.
+		fetchMock.mockResolvedValueOnce(new Response("", { status: 204 }));
+		await expect(client.fetchJson("/api/v1/files/list", { limit: 1 })).resolves.toEqual({
+			status: 204,
+			body: null,
 		});
 	});
 
