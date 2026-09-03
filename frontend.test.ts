@@ -312,8 +312,14 @@ describe("bonobo_connect", () => {
 		expect(generated).not.toMatch(/\btypeof\b|api_schemas_Main|\bExpand\b|\breadonly\b/);
 
 		// Every status must carry the body its handler answers. A handler that returns one object
-		// with a union `status` used to print `never` for each of those statuses.
+		// with a union `status` used to print `never` for each of those statuses, and a handler that
+		// returned a bare `page: []` printed `never[]` for that array. Both collapses have happened.
+		//
+		// Pin them here, because `never` is assignable to everything. A plugin that checks its own
+		// parsers against this table would go green against a collapsed body and learn nothing, and
+		// no compiler error would point at the generator. This is the one place that can see it.
 		expect(generated).not.toContain("body: never");
+		expect(generated).not.toMatch(/\bnever\[\]/);
 	});
 
 	test("accepts a file-view context and rejects contexts with a missing or unknown kind", async () => {
