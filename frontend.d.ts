@@ -137,8 +137,10 @@ export type BonoboContext = BonoboPageContext | BonoboFileViewContext;
  * scales under their real custom property names, `--` prefix included: `--color-base-1-01` …
  * `--color-base-1-12`, and the same for `base-2`, `base-alt-1`, `base-alt-2`, `fg`, `accent`,
  * `accent-alt`, `green`, and `red` (`accent` and `accent-alt` have 10 steps, the rest 12). Each
- * value is a finished CSS colour. The SDK writes every entry onto the frame's root element, so a
- * stylesheet can use `var(--color-base-1-03)` exactly as the app does.
+ * value is a finished CSS colour.
+ *
+ * The SDK writes every entry onto the frame's root element, so a stylesheet can use
+ * `var(--color-base-1-03)` exactly as the app does.
  */
 export interface BonoboTheme {
 	mode: "light" | "dark";
@@ -148,10 +150,11 @@ export interface BonoboTheme {
 /**
  * The host's answer to {@link BonoboReadyMessage}: it delivers the short-lived scoped session
  * token (`plu_...`) with its plugin-session JWT, the Convex deployment URL the frame's own client
- * connects to, and the embedding context. The init is trusted only from `window.parent`, the
- * exact `parentOrigin` from the URL fragment, and the matching frame nonce. The token and the JWT
- * travel over postMessage only and are never placed in a URL. `tokenExpiresAt` and
- * `jwtExpiresAt` are Unix epoch milliseconds.
+ * connects to, and the embedding context.
+ *
+ * The init is trusted only from `window.parent`, the exact `parentOrigin` from the URL fragment,
+ * and the matching frame nonce. The token and the JWT travel over postMessage only and are never
+ * placed in a URL. `tokenExpiresAt` and `jwtExpiresAt` are Unix epoch milliseconds.
  */
 export interface BonoboInitMessage {
 	type: "bonobo:init";
@@ -326,9 +329,11 @@ export interface BonoboClient {
 	/**
 	 * The host's theme. The SDK has already applied it to this document: every token sits on
 	 * `document.documentElement.style` under its own name, and the root element carries the same
-	 * `light` or `dark` class the app puts on its root. A stylesheet needs nothing from here. Read
-	 * `current()` and `subscribe()` only for what CSS cannot do, such as picking a canvas colour or
-	 * an image treatment by `mode`; a plugin page never sees the host's theme change on its own.
+	 * `light` or `dark` class the app puts on its root. A stylesheet needs nothing from here.
+	 *
+	 * Read `current()` and `subscribe()` only for what CSS cannot do, such as picking a canvas
+	 * colour or an image treatment by `mode`; a plugin page never sees the host's theme change on
+	 * its own.
 	 */
 	theme: {
 		/**
@@ -374,9 +379,11 @@ export interface BonoboClient {
 		/**
 		 * When the current session token expires, in Unix epoch milliseconds: the last
 		 * `tokenExpiresAt` the host sent in `bonobo:init` or `bonobo:token`, or the session end the
-		 * JWT exchange reported. Compare it with `Date.now()` when a door refuses a read or a write:
-		 * a refusal after this time means the session ran out and a reload gets a new one; a refusal
-		 * before it means the plugin was uninstalled, disabled, or the member lost access.
+		 * JWT exchange reported.
+		 *
+		 * Compare it with `Date.now()` when a door refuses a read or a write: a refusal after this
+		 * time means the session ran out and a reload gets a new one; a refusal before it means the
+		 * plugin was uninstalled, disabled, or the member lost access.
 		 */
 		expiresAt(): number;
 		/**

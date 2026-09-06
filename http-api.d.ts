@@ -650,9 +650,11 @@ export type BonoboHttpApi = {
 			body: {
 				path: string;
 				content: string;
+				expectedParentNodeId?: string | undefined;
 				overwrite?: "replace" | "fail" | undefined;
 				skipIfUnchanged?: boolean | undefined;
 				nonCollaborative?: boolean | undefined;
+				contentType?: string | undefined;
 				access?: {
 					readOnly?: boolean | undefined;
 				} | undefined;
@@ -665,12 +667,34 @@ export type BonoboHttpApi = {
 					body: {
 						path: string;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
-						contentType: "text/markdown;charset=utf-8";
+						contentType: | `text/${"markdown" | "plain"}${"" | `;charset=${"utf-8"}`}`
+	| "application/json"
+	| "application/yaml"
+	| "application/toml"
+	| "text/csv"
+	| "text/tab-separated-values"
+	| "text/css"
+	| "text/javascript"
+	| "text/typescript"
+	| "application/x-sh"
+	| "application/sql"
+	| "application/octet-stream";
 						unchanged: true;
 					} | {
 						path: string;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
-						contentType: "text/markdown;charset=utf-8";
+						contentType: | `text/${"markdown" | "plain"}${"" | `;charset=${"utf-8"}`}`
+	| "application/json"
+	| "application/yaml"
+	| "application/toml"
+	| "text/csv"
+	| "text/tab-separated-values"
+	| "text/css"
+	| "text/javascript"
+	| "text/typescript"
+	| "application/x-sh"
+	| "application/sql"
+	| "application/octet-stream";
 						unchanged?: undefined;
 					};
 				};

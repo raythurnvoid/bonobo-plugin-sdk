@@ -104,6 +104,17 @@ export async function direct_calls_type_check() {
 }
 
 export async function http_type_check() {
+	const folder = await client.fetchJson("/api/v1/files/plugin-folders/ensure", { path: "/chat/private" });
+	if (folder.status === 200 && folder.body !== null) {
+		void client.fetchJson("/api/v1/files/write", {
+			path: "/chat/private/tail.md",
+			content: "# Messages",
+			expectedParentNodeId: folder.body.nodeId,
+		});
+	}
+	// @ts-expect-error a parent precondition is a node ID string, never a boolean.
+	void client.fetchJson("/api/v1/files/write", { path: "/tail.md", content: "", expectedParentNodeId: true });
+
 	// The path, the body and the answer all come from the app's own route table, so this compiles
 	// with no cast. `init` is the rest of `RequestInit`.
 	const page = await client.fetchJson(

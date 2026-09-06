@@ -21,15 +21,16 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   capped by an exact destination path prefix. It never reaches the frame. The interactive
  *   exchange never mints that scope; the service gets it through the seal-processing route. A
  *   sealed grant may use the `/api/v1/files/service-uploads/*` routes, write Markdown inside its
- *   seal through `/api/v1/files/write`, and archive a file it wrote through
+ *   seal through `/api/v1/files/write`, and archive a file marked for this plugin through
  *   `/api/v1/files/plugin-archive`.
  * - `workspace.files.create-read-only` — lets the service request a direct read-only lock when it
  *   creates a file. Declaring it also requires `workspace.files.write`.
- * - `workspace.files.own-write` — backend invoke runs may create, update, and archive files inside
- *   folders the plugin created and stamped as its own. It never reaches files a member or another
- *   plugin owns. Declaring it also requires `workspace.files.write`.
- * - `workspace.files.own-access` — backend invoke runs may lock the plugin's own files read-only
- *   and choose which members can read them. Declaring it also requires `workspace.files.own-write`.
+ * - `workspace.files.own-write` — backend invoke runs may create, update, and archive files and
+ *   folders marked by matching `plugin-name` metadata. Members may change or remove this label.
+ *   Declaring it also requires `workspace.files.write`.
+ * - `workspace.files.own-access` — backend invoke runs may set locks and readers on matching files
+ *   and folders. Members with manage permission may change them.
+ *   Declaring it also requires `workspace.files.own-write`.
  * - `plugin.data.read` — backend runs, UI pages and file views, and eligible Council service grants
  *   may read the plugin's own document store.
  * - `plugin.data.write` — backend runs and eligible Council service grants may write the plugin's own
@@ -188,8 +189,9 @@ export interface BonoboUploadCompletedEvent {
  * The invoke payload of a {@link BonoboInvokeRequestedEvent}. `input` is whatever the page sent —
  * it is UNTRUSTED page data: any code running in the frame can fill it with anything, so never
  * read an acting identity from it. The member behind the run is the envelope's `actorUserId`,
- * which the host verified from the frame's session. `serializationKey` echoes the page's key for
- * a `"caller-key"` endpoint and is `null` otherwise.
+ * which the host verified from the frame's session.
+ *
+ * `serializationKey` echoes the page's key for a `"caller-key"` endpoint and is `null` otherwise.
  */
 export interface BonoboInvokeRequestedEventInvoke {
 	endpointId: string;
@@ -203,9 +205,10 @@ export interface BonoboInvokeRequestedEventInvoke {
  * `client.fetchJson` on that path in the frontend SDK) and the host runs the backend synchronously. The
  * request URL is `https://plugin.local<endpoint.path>` for the declared endpoint, so `fetch` can
  * route on `request.url` like a small router; host events keep the reserved
- * `/__bonobo_senate/run` path, which a manifest endpoint can never use. `source` is always null —
- * there is no triggering file, so the sibling-write rule does not apply; with
- * `workspace.files.own-write` the run writes inside the folders the plugin owns instead.
+ * `/__bonobo_senate/run` path. Endpoint paths are `/` or slash-separated lowercase letters, digits,
+ * and dashes, at most 256 characters. No trailing/duplicate slashes, dots, escapes, or underscores.
+ * `source` is always null — there is no triggering file, so the sibling-write rule does not apply; with
+ * `workspace.files.own-write` the run uses matching editable `plugin-name` metadata instead.
  *
  * The response the plugin returns (status and body text) is relayed to the page as the invoke
  * result.
