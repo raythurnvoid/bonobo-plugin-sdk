@@ -98,6 +98,12 @@ export async function direct_calls_type_check() {
 }
 
 export async function http_type_check() {
+	void client.fetchJson("/api/v1/files/download-urls", { fileNodeIds: ["file_1"], download: true });
+	void client.fetchJson("/api/v1/files/download-urls", { fileNodeIds: ["file_1"], download: false });
+	void client.fetchJson("/api/v1/files/download-urls", { fileNodeIds: ["file_1"] });
+	// @ts-expect-error download is an optional boolean.
+	void client.fetchJson("/api/v1/files/download-urls", { fileNodeIds: ["file_1"], download: "true" });
+
 	const folder = await client.fetchJson("/api/v1/files/plugin-folders/ensure", { path: "/chat/private" });
 	if (folder.status === 200 && folder.body !== null) {
 		void client.fetchJson("/api/v1/files/write", {

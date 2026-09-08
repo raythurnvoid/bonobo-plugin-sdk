@@ -867,6 +867,7 @@ export type BonoboHttpApi = {
 			body: {
 				fileNodeIds: string[];
 				expiresInSeconds?: number | undefined;
+				download?: boolean | undefined;
 			};
 			response: {
 				200: {
