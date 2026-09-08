@@ -332,6 +332,7 @@ describe("bonobo_connect", () => {
 		// no compiler error would point at the generator. This is the one place that can see it.
 		expect(generated).not.toContain("body: never");
 		expect(generated).not.toMatch(/\bnever\[\]/);
+
 		const invoke = routeBlocks.find((block) => block.startsWith('/api/v1/plugin-backend/invoke"'))!;
 		expect(invoke).toContain("runId: string;");
 		expect(invoke).toContain("pluginStatus: number;");
@@ -601,6 +602,7 @@ describe("bonobo_connect", () => {
 			status: 500,
 			body: { message: "Plugin backend failed", runId: "run_failed" },
 		});
+
 		const oversized = {
 			message: "Plugin backend response was too large",
 			runId: "run_oversized",

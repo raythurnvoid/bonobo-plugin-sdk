@@ -1,25 +1,15 @@
-/**
- * Bonobo plugin frontend SDK — hand-written browser ESM, no build step.
- *
- * Runs inside the host app's sandboxed plugin iframe for plugin pages and plugin file views alike.
- * The comments below say "page" for both kinds, the way the host app's own notes do. Any text a
- * MEMBER can end up reading must not: it has to say "plugin frame", because a member sitting in a
- * file view is not on a page and never read these notes. That covers every `new Error(...)` the SDK
- * rejects with, and every `_nay.message` it resolves — plugin code renders those verbatim.
- *
- * The host handshake is a strict postMessage contract: the page announces `bonobo:ready`, the host
- * answers `bonobo:init` with a short-lived scoped session token (`plu_...`), the page context, and
- * the Convex deployment URL. From then on the page acts on its own:
- *
- * - Public `/api/v1/*` calls go straight to the iframe's own origin with
- *   `Authorization: Bearer <token>`.
- * - Plugin data runs on the page's OWN Convex client, a `ConvexReactClient` the page uses with the
- *   `convex/react` hooks and the typed door references in `api`. The client authenticates with
- *   the plugin-session JWT the host delivers beside the session token, in `bonobo:init` and in
- *   every `bonobo:token`. A host that sends no JWT is covered by the same-origin
- *   `/plugins-ui/session-jwt` exchange. The host window is not part of that data path; it only
- *   answers session-token refreshes over the bridge.
- */
+// Bonobo plugin frontend SDK: hand-written browser ESM with no build step.
+// Runs in sandboxed plugin pages and file views. Use "plugin frame" in user-facing errors,
+// since plugin code can show those errors in either view.
+//
+// The frame announces `bonobo:ready`. The host answers `bonobo:init` with a short-lived `plu_`
+// session token, frame context, and Convex deployment URL. Public `/api/v1/*` requests go to the
+// frame's own origin with `Authorization: Bearer <token>`.
+//
+// Plugin data uses the frame's own `ConvexReactClient`, `convex/react` hooks, and typed `api`
+// references. The host delivers its plugin-session JWT in `bonobo:init` and `bonobo:token`.
+// If no JWT arrives, the SDK exchanges the token at `/plugins-ui/session-jwt` on the same origin.
+// The host handles token refreshes over the bridge; data requests go directly to Convex.
 
 import { ConvexReactClient } from "convex/react";
 import { anyApi } from "convex/server";
@@ -31,7 +21,9 @@ import { anyApi } from "convex/server";
  *
  * @type {import("bonobo-plugin-sdk/convex-api").BonoboConvexApi}
  */
-const bonobo_convex_api = /** @type {any} */ (anyApi);
+const bonobo_convex_api = /**
+ * @type {any}
+ */ (anyApi);
 
 /**
  * `getToken` refreshes when the token is expired or expires within this margin. The Convex auth
@@ -61,14 +53,18 @@ function read_theme(value) {
 	if (typeof value !== "object" || value === null) {
 		return null;
 	}
-	const candidate = /** @type {{ mode?: unknown, tokens?: unknown }} */ (value);
+	const candidate = /**
+	 * @type {{ mode?: unknown, tokens?: unknown }}
+	 */ (value);
 	if (candidate.mode !== "light" && candidate.mode !== "dark") {
 		return null;
 	}
 	if (typeof candidate.tokens !== "object" || candidate.tokens === null) {
 		return null;
 	}
-	/** @type {Record<string, string>} */
+	/**
+	 * @type {Record<string, string>}
+	 */
 	const tokens = {};
 	for (const [name, tokenValue] of Object.entries(candidate.tokens)) {
 		if (typeof tokenValue !== "string") {
@@ -77,7 +73,11 @@ function read_theme(value) {
 		tokens[name] = tokenValue;
 	}
 
-	return /** @type {import("bonobo-plugin-sdk/frontend").BonoboTheme} */ ({ mode: candidate.mode, tokens });
+	return (
+		/**
+		 * @type {import("bonobo-plugin-sdk/frontend").BonoboTheme}
+		 */ ({ mode: candidate.mode, tokens })
+	);
 }
 
 /**
@@ -249,7 +249,9 @@ export async function bonobo_connect() {
 	 * @type {import("bonobo-plugin-sdk/frontend").BonoboTheme | null}
 	 */
 	let theme = null;
-	/** @type {Set<(theme: import("bonobo-plugin-sdk/frontend").BonoboTheme) => void>} */
+	/**
+	 * @type {Set<(theme: import("bonobo-plugin-sdk/frontend").BonoboTheme) => void>}
+	 */
 	const themeSubscribers = new Set();
 
 	/** @type {Map<string, { resolve: (token: string) => void, reject: (error: Error) => void, timeout: ReturnType<typeof setTimeout> }>} */
@@ -401,10 +403,14 @@ export async function bonobo_connect() {
 			// Not JSON, so the answer keeps its status and a null body.
 		}
 
-		return /** @type {import("bonobo-plugin-sdk/http-api").BonoboHttpResponse<P>} */ ({
-			status: response.status,
-			body: parsedBody,
-		});
+		return (
+			/**
+			 * @type {import("bonobo-plugin-sdk/http-api").BonoboHttpResponse<P>}
+			 */ ({
+				status: response.status,
+				body: parsedBody,
+			})
+		);
 	}
 
 	/**
@@ -471,7 +477,9 @@ export async function bonobo_connect() {
 				return jwt;
 			}
 
-			/** @type {Response | null} */
+			/**
+			 * @type {Response | null}
+			 */
 			let response = null;
 			try {
 				// A delivered JWT is replaced through the host: the answer carries both credentials.
@@ -516,7 +524,9 @@ export async function bonobo_connect() {
 		}
 	}
 
-	/** @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboClient>} */
+	/**
+	 * @type {Promise<import("bonobo-plugin-sdk/frontend").BonoboClient>}
+	 */
 	const client_promise = new Promise((resolve) => {
 		let initialized = false;
 		/** @type {ReturnType<typeof setInterval> | undefined} */

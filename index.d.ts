@@ -27,9 +27,12 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   creates a file. Declaring it also requires `workspace.files.write`.
  * - `workspace.files.own-write` — backend invoke runs may create, update, and archive files and
  *   folders marked by matching `plugin-name` metadata. Members may change or remove this label.
+ *   Registered external backends may use the separate own-file bridge with a sealed grant and
+ *   current service secret. That bridge also pins the output scope and writer generation.
  *   Declaring it also requires `workspace.files.write`.
  * - `workspace.files.own-access` — backend invoke runs may set locks and readers on matching files
- *   and folders. Members with manage permission may change them.
+ *   and folders. The external own-file bridge may create private reader bindings and update them
+ *   while attached. Members with manage permission may take over sharing.
  *   Declaring it also requires `workspace.files.own-write`.
  * - `plugin.data.read` — backend runs, UI pages and file views, and eligible Council service grants
  *   may read the plugin's own document store.
@@ -48,10 +51,10 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   session's installation and member, so both frame kinds work the same. The outside service must
  *   also authenticate with the exchange secret from the plugin's publisher-managed service
  *   registration; the registration's scopes decide what the grant carries. Declaring it requires
- *   `plugin.data.read` or `workspace.files.write` as well, because a grant that carries no scope
- *   buys the service nothing.
+ *   `plugin.data.read` or `workspace.files.write` as well. A Files-only registration may receive an
+ *   empty-scope interactive grant; it gains file authority only after sealing.
  * - `ui.outbound.fetch` — the plugin's UI pages and file views, running in the member's browser, may
- *   call the manifest's `uiOutboundOrigins`. It is enforced as `connect-src` in the frame's CSP. It
+ *   call the manifest's bare HTTPS or WSS `uiOutboundOrigins`. The browser enforces `connect-src`. It
  *   and `uiOutboundOrigins` require each other: neither may be declared alone.
  * - `workspace.members.read` — the plugin's UI pages and file views may list every member of the
  *   workspace, as user ids and display names. Email is never returned. Without it a frame can still

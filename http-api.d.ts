@@ -875,6 +875,8 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						items: {
+							name: string;
+							contentType: string | null;
 							fileNodeId: string;
 							url: string;
 							expiresAt: number;

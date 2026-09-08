@@ -1,12 +1,6 @@
-/**
- * Type-level checks of the Convex surface a plugin gets from `bonobo_connect`.
- *
- * `pnpm run typecheck` compiles this file with `--strict`, the way a plugin compiles. Vitest never
- * runs it: typecheck mode is off in `vitest.config.ts`, and the run glob does not match
- * `*.test-d.ts`. Every line marked `@ts-expect-error` must fail to compile; if the generated types
- * ever stop rejecting it, tsc reports an unused directive and the check fails. A bare directive
- * accepts any error on its line, so keep each of those lines wrong in exactly one way.
- */
+// Type checks for the Convex API a plugin gets from `bonobo_connect`.
+// `pnpm run typecheck` compiles this file with `--strict`. Vitest does not run `*.test-d.ts` files.
+// Each `@ts-expect-error` line must fail for one reason only, so another error cannot hide a regression.
 import { usePaginatedQuery, useQuery } from "convex/react";
 import type { BonoboClient } from "bonobo-plugin-sdk/frontend";
 
