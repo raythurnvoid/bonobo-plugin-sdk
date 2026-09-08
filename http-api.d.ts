@@ -1301,6 +1301,17 @@ export type BonoboHttpApi = {
 				serializationKey?: string | undefined;
 			};
 			response: {
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Plugin backend failed" | "Plugin backend response was too large";
+						runId: string;
+						code: "response_too_large" | undefined;
+						retryAfterMs?: undefined;
+					};
+				};
 				429: {
 					headers: {
 						[x: string]: string;
@@ -1375,17 +1386,6 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 						runId?: undefined;
 						code?: undefined;
-					};
-				};
-				502: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Plugin backend failed" | "Plugin backend response was too large";
-						runId: string;
-						code: "response_too_large" | undefined;
-						retryAfterMs?: undefined;
 					};
 				};
 				413: {

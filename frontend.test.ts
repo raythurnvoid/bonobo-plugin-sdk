@@ -590,16 +590,28 @@ describe("bonobo_connect", () => {
 
 		// A 5xx is an answer like any other. The SDK used to throw it, which decided for every
 		// caller that the outcome was unknown; that decision belongs to the caller. The invoke
-		// route declares 502, and the generated union keeps the member.
+		// route declares 500, and the generated union keeps the member.
 		fetchMock.mockResolvedValueOnce(
-			new Response(JSON.stringify({ message: "Plugin backend failed" }), {
-				status: 502,
+			new Response(JSON.stringify({ message: "Plugin backend failed", runId: "run_failed" }), {
+				status: 500,
 				headers: { "Content-Type": "application/json" },
 			}),
 		);
 		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).resolves.toEqual({
-			status: 502,
-			body: { message: "Plugin backend failed" },
+			status: 500,
+			body: { message: "Plugin backend failed", runId: "run_failed" },
+		});
+		const oversized = {
+			message: "Plugin backend response was too large",
+			runId: "run_oversized",
+			code: "response_too_large",
+		};
+		fetchMock.mockResolvedValueOnce(
+			new Response(JSON.stringify(oversized), { status: 500, headers: { "Content-Type": "application/json" } }),
+		);
+		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).resolves.toEqual({
+			status: 500,
+			body: oversized,
 		});
 
 		// A status the route does not declare, with a JSON body: a gateway between the frame and

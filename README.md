@@ -172,7 +172,7 @@ While a reader binding is attached, private-scope membership changes update the 
 
 Chitchat and Council write files one way from their source stores. Files edits never change chat data or Council D1. Chitchat may keep edits until a later block replacement or bounded rebuild. It re-ensures private folders and sends the fresh parent ID on every private transcript write. A definite file refusal after a confirmed source write returns `transcriptUpdated: false` with the normal source result; uncertain source writes stay uncertain. Council replaces the full note on a later source revision. A refused pending revision can retry after access is restored while its grant remains live; a caught-up note needs another source revision.
 
-Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope, permission, or matching label, `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` overwrite, current lock, or target/parent identity conflict, `429` run call quota or rate limit, `500` curated storage failure. An upload-triggered run succeeds only if it writes at least one Markdown output; an invoke run succeeds on a clean exit, because its result is its own response body.
+Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope, permission, or matching label, `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` overwrite, current lock, or target/parent identity conflict, `429` run call quota or rate limit, `500` curated storage failure. An event or invoke run may succeed without writing a file. The host requires a complete successful response and settled API calls.
 
 ## Typed worker example
 
@@ -520,7 +520,7 @@ The raw backend body has the same cap. Output is never truncated. Empty `204` re
 the plugin decides whether its endpoint requires JSON. Events may succeed without writing a file.
 The host waits for the whole response and settled API calls before forwarding any reply bytes.
 
-A host `502` with `code: "response_too_large"` means the reply exceeded its limit. Earlier changes
+A host `500` with `code: "response_too_large"` means the reply exceeded its limit. Earlier changes
 may already be saved. Stop automatic retries for this size error, keep the request ID, and offer
 manual retry. A plugin `5xx` inside outer `200` may also follow a saved write; retry only with the
 same request ID and the plugin's own duplicate-request protection.
@@ -539,7 +539,7 @@ What each refusal means, replacing the old `_nay.name` vocabulary:
 | `429`                 | A rate limit. `body.retryAfterMs` carries the wait when the limiter set one; the plugin API call limit answers without it, so allow for a missing hint.                                |
 | `401` / `403`         | The server answers the same for a lapsed session and a revoked plugin. `client.session.expiresAt()` versus `Date.now()` is the whole difference: past it, reload; before it, the frame lost access. |
 | `400` / `404` / `413` | The request was refused — an unknown endpoint, a missing `serializationKey`, a body too large. `body.message` says why.                                                                |
-| `502`                 | The backend did not run, or the host failed. It resolves like any other answer, with `body?.message` and `body?.runId`. So does any other `5xx`, and so does an answer whose body will not parse (`body` is `null` then). The outcome is unknown in all of these, so only retry work that is safe to repeat. |
+| `500`                 | The backend did not run, or the host failed. It resolves like any other answer, with `body?.message` and `body?.runId`. So does any other `5xx`, and so does an answer whose body will not parse (`body` is `null` then). The outcome is unknown in all of these, so only retry work that is safe to repeat. |
 | a rejection           | No answer at all: a network failure, an aborted `signal`, or a session the host will not renew. Same rule — the outcome is unknown.                                                    |
 
 ### Frontend page example

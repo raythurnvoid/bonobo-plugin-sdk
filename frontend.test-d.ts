@@ -174,13 +174,15 @@ export async function http_type_check() {
 		const retryAfterMs: number | undefined = invoked.body?.retryAfterMs;
 		void retryAfterMs;
 	}
-	// The invoke route declares a 502, and since 0.18.0 `fetchJson` resolves it like any other
-	// answer, so the union keeps that member and it narrows to the 502 body.
-	if (invoked.status === 502) {
+	// The invoke route declares a 500. `fetchJson` resolves it like any other answer,
+	// so the union keeps that member and narrows to its body.
+	if (invoked.status === 500) {
 		const message: string | undefined = invoked.body?.message;
 		const code: "response_too_large" | undefined = invoked.body?.code;
+		const runId: string | undefined = invoked.body?.runId;
 		void message;
 		void code;
+		void runId;
 	}
 
 	// The own-fetch primitive.
