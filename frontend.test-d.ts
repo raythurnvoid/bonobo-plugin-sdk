@@ -155,7 +155,13 @@ export async function http_type_check() {
 	if (invoked.status === 200 && invoked.body !== null) {
 		const runId: string = invoked.body.runId;
 		const pluginStatus: number = invoked.body.pluginStatus;
-		return { runId, pluginStatus };
+		const output: string = invoked.body.output;
+		// @ts-expect-error complete invoke replies have no truncation flag.
+		void invoked.body.outputTruncated;
+		// @ts-expect-error the public reply is JSON, not its transport bytes.
+		const bytes: Uint8Array = invoked.body;
+		void bytes;
+		return { runId, pluginStatus, output };
 	}
 	if (invoked.status === 409) {
 		// The serialization lock always says how long to wait.
@@ -172,7 +178,9 @@ export async function http_type_check() {
 	// answer, so the union keeps that member and it narrows to the 502 body.
 	if (invoked.status === 502) {
 		const message: string | undefined = invoked.body?.message;
+		const code: "response_too_large" | undefined = invoked.body?.code;
 		void message;
+		void code;
 	}
 
 	// The own-fetch primitive.

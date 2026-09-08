@@ -332,6 +332,12 @@ describe("bonobo_connect", () => {
 		// no compiler error would point at the generator. This is the one place that can see it.
 		expect(generated).not.toContain("body: never");
 		expect(generated).not.toMatch(/\bnever\[\]/);
+		const invoke = routeBlocks.find((block) => block.startsWith('/api/v1/plugin-backend/invoke"'))!;
+		expect(invoke).toContain("runId: string;");
+		expect(invoke).toContain("pluginStatus: number;");
+		expect(invoke).toContain("output: string;");
+		expect(invoke).toContain('code: "response_too_large" | undefined;');
+		expect(invoke).not.toMatch(/outputTruncated|Uint8Array|\bany\b|body: never/);
 	});
 
 	test("accepts a file-view context and rejects contexts with a missing or unknown kind", async () => {
@@ -470,14 +476,12 @@ describe("bonobo_connect", () => {
 		const clientPromise = bonobo_connect();
 		post_from_host(make_init());
 		const client = await clientPromise;
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValue(
-				new Response(JSON.stringify({ message: "Unauthenticated" }), {
-					status: 401,
-					headers: { "Content-Type": "application/json" },
-				}),
-			);
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ message: "Unauthenticated" }), {
+				status: 401,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		const result = client.fetchJson("/api/v1/files/list", { limit: 100 });

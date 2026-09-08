@@ -1301,19 +1301,6 @@ export type BonoboHttpApi = {
 				serializationKey?: string | undefined;
 			};
 			response: {
-				200: {
-					headers: {
-						"Cache-Control": "no-store";
-					};
-					body: {
-						runId: string;
-						pluginStatus: number;
-						output: string;
-						outputTruncated: boolean;
-						message?: undefined;
-						retryAfterMs?: undefined;
-					};
-				};
 				429: {
 					headers: {
 						[x: string]: string;
@@ -1349,9 +1336,7 @@ export type BonoboHttpApi = {
 						message: "Permission denied" | "Not found" | "Endpoint not found" | "This endpoint requires a serialization key" | "Serialization keys must be visible ASCII (no spaces) up to 128 characters";
 						retryAfterMs?: undefined;
 						runId?: undefined;
-						pluginStatus?: undefined;
-						output?: undefined;
-						outputTruncated?: undefined;
+						code?: undefined;
 					};
 				};
 				400: {
@@ -1362,16 +1347,12 @@ export type BonoboHttpApi = {
 						message: "Permission denied" | "Not found" | "Endpoint not found" | "This endpoint requires a serialization key" | "Serialization keys must be visible ASCII (no spaces) up to 128 characters";
 						retryAfterMs?: undefined;
 						runId?: undefined;
-						pluginStatus?: undefined;
-						output?: undefined;
-						outputTruncated?: undefined;
+						code?: undefined;
 					} | {
 						message: "Request body is too large" | "Request body validation failed" | "Failed to parse request body as JSON";
 						retryAfterMs?: undefined;
 						runId?: undefined;
-						pluginStatus?: undefined;
-						output?: undefined;
-						outputTruncated?: undefined;
+						code?: undefined;
 					};
 				};
 				409: {
@@ -1382,9 +1363,7 @@ export type BonoboHttpApi = {
 						message: "Another invoke is already running for this endpoint";
 						retryAfterMs: number;
 						runId?: undefined;
-						pluginStatus?: undefined;
-						output?: undefined;
-						outputTruncated?: undefined;
+						code?: undefined;
 					};
 				};
 				404: {
@@ -1395,9 +1374,7 @@ export type BonoboHttpApi = {
 						message: "Permission denied" | "Not found" | "Endpoint not found" | "This endpoint requires a serialization key" | "Serialization keys must be visible ASCII (no spaces) up to 128 characters";
 						retryAfterMs?: undefined;
 						runId?: undefined;
-						pluginStatus?: undefined;
-						output?: undefined;
-						outputTruncated?: undefined;
+						code?: undefined;
 					};
 				};
 				502: {
@@ -1405,12 +1382,10 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Plugin backend failed";
+						message: "Plugin backend failed" | "Plugin backend response was too large";
 						runId: string;
+						code: "response_too_large" | undefined;
 						retryAfterMs?: undefined;
-						pluginStatus?: undefined;
-						output?: undefined;
-						outputTruncated?: undefined;
 					};
 				};
 				413: {
@@ -1421,9 +1396,18 @@ export type BonoboHttpApi = {
 						message: "Invoke request is too large for this plugin configuration";
 						retryAfterMs?: undefined;
 						runId?: undefined;
-						pluginStatus?: undefined;
-						output?: undefined;
-						outputTruncated?: undefined;
+						code?: undefined;
+					};
+				};
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+						"Content-Type": "application/json";
+					};
+					body: {
+						runId: string;
+						pluginStatus: number;
+						output: string;
 					};
 				};
 			};
