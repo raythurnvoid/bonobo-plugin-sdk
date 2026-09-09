@@ -658,6 +658,16 @@ export type BonoboHttpApi = {
 				access?: {
 					readOnly?: boolean | undefined;
 				} | undefined;
+				writer?: {
+					writerId: string;
+					operationId: string;
+					writerGeneration: number;
+					sequence: number;
+					expectedNodeId: string | null;
+					expectedContentRevision: string | null;
+					expectedReaderRevision: number | null;
+					contentHash: string;
+				} | undefined;
 			};
 			response: {
 				200: {
@@ -679,7 +689,26 @@ export type BonoboHttpApi = {
 	| "application/x-sh"
 	| "application/sql"
 	| "application/octet-stream";
-						unchanged: true;
+						receipt: {
+							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
+							_creationTime: number;
+							organizationId: import("convex/values").GenericId<"organizations">;
+							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+							path: string;
+							createdAt: number;
+							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
+							writerGeneration: number;
+							operationId: string;
+							sequence: number;
+							nodeId: import("convex/values").GenericId<"files_nodes">;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+							operation: "write" | "fence" | "readers" | "archive" | "rollback_readers" | "cancel_readers";
+							fingerprint: string;
+							contentRevision: string | null;
+							readerRevision: number | null;
+						};
+						message?: undefined;
+						unchanged?: undefined;
 					} | {
 						path: string;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
@@ -695,6 +724,26 @@ export type BonoboHttpApi = {
 	| "application/x-sh"
 	| "application/sql"
 	| "application/octet-stream";
+						unchanged: true;
+						message?: undefined;
+						receipt?: undefined;
+					} | {
+						path: string;
+						nodeId: import("convex/values").GenericId<"files_nodes">;
+						contentType: | `text/${"markdown" | "plain"}${"" | `;charset=${"utf-8"}`}`
+	| "application/json"
+	| "application/yaml"
+	| "application/toml"
+	| "text/csv"
+	| "text/tab-separated-values"
+	| "text/css"
+	| "text/javascript"
+	| "text/typescript"
+	| "application/x-sh"
+	| "application/sql"
+	| "application/octet-stream";
+						message?: undefined;
+						receipt?: undefined;
 						unchanged?: undefined;
 					};
 				};
@@ -704,6 +753,13 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: string;
+					} | {
+						message: "The write receipt is unavailable";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
 					};
 				};
 				429: {
@@ -730,6 +786,13 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					} | {
 						message: string;
+					} | {
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "Plugin file operations are not ready" | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
 					};
 				};
 				403: {
@@ -741,6 +804,13 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					} | {
 						message: string;
+					} | {
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "Plugin file operations are not ready" | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
 					};
 				};
 				400: {
@@ -749,6 +819,13 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: string;
+					} | {
+						message: "Plugin file operations are not ready" | "Invalid file operation ID";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
 					};
 				};
 				409: {
@@ -757,6 +834,33 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: string;
+					} | {
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "Plugin file operations are not ready" | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "Plugin file operations are not ready" | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
+					} | {
+						message: "Plugin file operations are not ready" | "Invalid file operation ID";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
 					};
 				};
 				402: {
@@ -976,6 +1080,14 @@ export type BonoboHttpApi = {
 				access?: {
 					readOnly?: boolean | undefined;
 					readScopeId?: string | null | undefined;
+					readers?: {
+						userId: string;
+						membershipLifetime: number;
+					}[] | undefined;
+				} | undefined;
+				writer?: {
+					resourceKey: string;
+					rootNodeId: string | null;
 				} | undefined;
 			};
 			response: {
@@ -987,6 +1099,26 @@ export type BonoboHttpApi = {
 						nodeId: import("convex/values").GenericId<"files_nodes">;
 						path: string;
 						created: boolean;
+						writer: {
+							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
+							rootNodeId: import("convex/values").GenericId<"files_nodes">;
+							folderNodeId: import("convex/values").GenericId<"files_nodes">;
+							writerGeneration: number;
+							readerRevision: number | null;
+							detached: boolean;
+						} | {
+							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
+							rootNodeId: import("convex/values").GenericId<"files_nodes">;
+							folderNodeId: import("convex/values").GenericId<"files_nodes">;
+							writerGeneration: 1;
+							readerRevision: 1 | null;
+							detached: false;
+						};
+					} | {
+						nodeId: import("convex/values").GenericId<"files_nodes">;
+						path: string;
+						created: boolean;
+						writer?: undefined;
 					};
 				};
 				429: {
@@ -1009,10 +1141,12 @@ export type BonoboHttpApi = {
 						message: "Unauthenticated" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					} | {
+						message: string;
+					} | {
+						message: "Unauthenticated";
+					} | {
 						message: "Unauthenticated" | "Permission denied";
 						retryAfterMs?: undefined;
-					} | {
-						message: string;
 					};
 				};
 				403: {
@@ -1020,10 +1154,12 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
+						message: string;
+					} | {
 						message: "Unauthenticated" | "Permission denied";
 						retryAfterMs?: undefined;
 					} | {
-						message: string;
+						message: "Permission denied";
 					};
 				};
 				400: {
@@ -1050,6 +1186,14 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
 			};
 		};
 	};
@@ -1062,6 +1206,14 @@ export type BonoboHttpApi = {
 			};
 			body: {
 				path: string;
+				writer?: {
+					writerId: string;
+					operationId: string;
+					writerGeneration: number;
+					sequence: number;
+					nodeId: string;
+					expectedContentRevision?: string | undefined;
+				} | undefined;
 			};
 			response: {
 				200: {
@@ -1069,7 +1221,28 @@ export type BonoboHttpApi = {
 						"Cache-Control": "no-store";
 					};
 					body: {
+						archivedNodes: 1;
+						receipt: {
+							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
+							_creationTime: number;
+							organizationId: import("convex/values").GenericId<"organizations">;
+							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+							path: string;
+							createdAt: number;
+							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
+							writerGeneration: number;
+							operationId: string;
+							sequence: number;
+							nodeId: import("convex/values").GenericId<"files_nodes">;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+							operation: "write" | "fence" | "readers" | "archive" | "rollback_readers" | "cancel_readers";
+							fingerprint: string;
+							contentRevision: string | null;
+							readerRevision: number | null;
+						};
+					} | {
 						archivedNodes: number;
+						receipt?: undefined;
 					};
 				};
 				429: {
@@ -1092,10 +1265,12 @@ export type BonoboHttpApi = {
 						message: "Unauthenticated" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					} | {
-						message: string;
+						message: "Unauthenticated";
 					} | {
 						message: "Unauthenticated" | "Permission denied";
 						retryAfterMs?: undefined;
+					} | {
+						message: string;
 					};
 				};
 				403: {
@@ -1103,10 +1278,12 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
-					} | {
 						message: "Unauthenticated" | "Permission denied";
 						retryAfterMs?: undefined;
+					} | {
+						message: "Permission denied";
+					} | {
+						message: string;
 					};
 				};
 				400: {
@@ -1118,6 +1295,14 @@ export type BonoboHttpApi = {
 					};
 				};
 				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				503: {
 					headers: {
 						[x: string]: string;
 					};
@@ -1140,7 +1325,17 @@ export type BonoboHttpApi = {
 				access: {
 					readOnly?: boolean | undefined;
 					readScopeId?: string | null | undefined;
+					readers?: {
+						userId: string;
+						membershipLifetime: number;
+					}[] | undefined;
 				};
+				writer?: {
+					writerId: string;
+					operationId: string;
+					writerGeneration: number;
+					expectedReaderRevision: number;
+				} | undefined;
 			};
 			response: {
 				200: {
@@ -1149,6 +1344,27 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						nodeId: import("convex/values").GenericId<"files_nodes">;
+						receipt: {
+							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
+							_creationTime: number;
+							organizationId: import("convex/values").GenericId<"organizations">;
+							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+							path: string;
+							createdAt: number;
+							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
+							writerGeneration: number;
+							operationId: string;
+							sequence: number;
+							nodeId: import("convex/values").GenericId<"files_nodes">;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+							operation: "write" | "fence" | "readers" | "archive" | "rollback_readers" | "cancel_readers";
+							fingerprint: string;
+							contentRevision: string | null;
+							readerRevision: number | null;
+						};
+					} | {
+						nodeId: import("convex/values").GenericId<"files_nodes">;
+						receipt?: undefined;
 					};
 				};
 				429: {
@@ -1171,6 +1387,8 @@ export type BonoboHttpApi = {
 						message: "Unauthenticated" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					} | {
+						message: "Unauthenticated";
+					} | {
 						message: "Unauthenticated" | "Permission denied";
 						retryAfterMs?: undefined;
 					} | {
@@ -1184,6 +1402,8 @@ export type BonoboHttpApi = {
 					body: {
 						message: "Unauthenticated" | "Permission denied";
 						retryAfterMs?: undefined;
+					} | {
+						message: "Permission denied";
 					} | {
 						message: string;
 					};
@@ -1210,6 +1430,1026 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: string;
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/files/plugin-access/undo": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				writerId: string;
+				operationId: string;
+				writerGeneration: number;
+				receiptId?: string | undefined;
+				originalReaderOperationId?: string | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
+						readerRevision: number;
+						detached: false;
+						restored: true;
+					} | {
+						_id: null;
+						readerRevision: number;
+						detached: true;
+						restored: false;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Rate limit exceeded";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code?: string | undefined;
+						message: "Unauthenticated";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied" | "This item is read-only." | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Request body validation failed" | "Failed to parse request body as JSON";
+					} | {
+						message: "Plugin file operations are not ready" | "Invalid file operation ID";
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied" | "This item is read-only." | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Plugin file operations are not ready" | "Invalid file operation ID";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/files/plugin-writers/inspect": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				writerId: string;
+				path: string;
+				maxBytes: number;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						nodeId: import("convex/values").GenericId<"files_nodes"> | null;
+						content: string | null;
+						contentType: string | null;
+						contentRevision: string | null;
+						expectedParentNodeId: import("convex/values").GenericId<"files_nodes">;
+						writerGeneration: number;
+						readerRevision: number | null;
+						detached: boolean;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated";
+					} | {
+						message: "Unauthenticated" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Unauthenticated" | "Permission denied";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied";
+					} | {
+						message: "Unauthenticated" | "Permission denied";
+						retryAfterMs?: undefined;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/files/plugin-writers/advance": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				writerId: string;
+				operationId: string;
+				writerGeneration: number;
+				nextGeneration: number;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
+						_creationTime: number;
+						organizationId: import("convex/values").GenericId<"organizations">;
+						workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+						path: string;
+						createdAt: number;
+						writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
+						writerGeneration: number;
+						operationId: string;
+						sequence: number;
+						nodeId: import("convex/values").GenericId<"files_nodes">;
+						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+						operation: "write" | "fence" | "readers" | "archive" | "rollback_readers" | "cancel_readers";
+						fingerprint: string;
+						contentRevision: string | null;
+						readerRevision: number | null;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated";
+					} | {
+						message: "Unauthenticated" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Unauthenticated" | "Permission denied";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied";
+					} | {
+						message: "Unauthenticated" | "Permission denied";
+						retryAfterMs?: undefined;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/identity/exchange": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				exchangeId: string;
+				requestedExpiresAt: number;
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						jwt: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "rate_limited";
+						message: "Rate limit exceeded";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "unauthorized";
+						message: "Unauthorized";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "permission_denied";
+						message: "Permission denied";
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "invalid_request";
+						message: string;
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "expired_lease";
+						message: "Lease has expired";
+					} | {
+						code: "unavailable";
+						message: "Installation is unavailable";
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "unavailable";
+						message: "Service access is unavailable";
+					};
+				};
+				410: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "snapshot_required";
+						message: "Snapshot required";
+					} | {
+						code: "revoked";
+						message: "Installation has been removed";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/members/list": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				installationId: string;
+				cursor: string | null;
+				startRevision: number | null;
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						startRevision: number;
+						currentRevision: number;
+						members: {
+							hostUserId: string;
+							hostMembershipId: string;
+							membershipLifetime: number;
+							displayName: string | null;
+							active: boolean;
+							canRead: boolean;
+							canWrite: boolean;
+							isOwner: boolean;
+						}[];
+						continueCursor: string | null;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "rate_limited";
+						message: "Rate limit exceeded";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "unauthorized";
+						message: "Unauthorized";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "permission_denied";
+						message: "Permission denied";
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "invalid_request";
+						message: string;
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "expired_lease";
+						message: "Lease has expired";
+					} | {
+						code: "unavailable";
+						message: "Installation is unavailable";
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "unavailable";
+						message: "Service access is unavailable";
+					};
+				};
+				410: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "snapshot_required";
+						message: "Snapshot required";
+					} | {
+						code: "revoked";
+						message: "Installation has been removed";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/access/changes": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				installationId: string;
+				afterRevision: number;
+				limit: number;
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						events: {
+							revision: number;
+							event: {
+								kind: "refresh";
+								reason: "installation" | "permissions" | "account" | "members";
+							} | {
+								kind: "member";
+								member: {
+									active: boolean;
+									displayName: string | null;
+									hostUserId: string;
+									hostMembershipId: string | null;
+									membershipLifetime: number;
+									canRead: boolean;
+									canWrite: boolean;
+									isOwner: boolean;
+								};
+							} | {
+								kind: "session_revoked";
+								hostSessionId: string;
+							} | {
+								kind: "revoked";
+								reason: "uninstalled" | "workspace_deleted" | "organization_deleted";
+							} | {
+								kind: "noop";
+							};
+						}[];
+						currentRevision: number;
+						continueRevision: number;
+						isDone: boolean;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "rate_limited";
+						message: "Rate limit exceeded";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "unauthorized";
+						message: "Unauthorized";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "permission_denied";
+						message: "Permission denied";
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "invalid_request";
+						message: string;
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "expired_lease";
+						message: "Lease has expired";
+					} | {
+						code: "unavailable";
+						message: "Installation is unavailable";
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "unavailable";
+						message: "Service access is unavailable";
+					};
+				};
+				410: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "snapshot_required";
+						message: "Snapshot required";
+					} | {
+						code: "revoked";
+						message: "Installation has been removed";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/service-grants/exchange": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				requestId?: string | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						token: string;
+						expiresAt: number;
+						scopes: ("files:write" | "plugin_data:read" | "plugin_data:write")[];
+						principalKey: string;
+						actorUserId: string;
+						organizationId: string;
+						workspaceId: string;
+						installationId: string;
+					};
+				};
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Failed to mint a unique grant token";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthorized";
+					} | {
+						message: "Unauthenticated";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied";
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Not found";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/service-grants/recover": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				operation: "exchange" | "renew" | "seal";
+				requestId: string;
+				destinationPathPrefix?: string | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						token: string;
+						grantId: import("convex/values").GenericId<"plugin_service_grants">;
+						principalKey: string;
+						scopes: ("files:write" | "plugin_data:read" | "plugin_data:write")[];
+						expiresAt: number;
+						actorUserId: import("convex/values").GenericId<"users">;
+						organizationId: import("convex/values").GenericId<"organizations">;
+						workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+						destinationPathPrefix: string | null;
+					};
+				};
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Failed to mint a unique grant token";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated";
+					} | {
+						message: "Unauthorized";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied";
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Not found";
+					} | {
+						message: "No saved grant response";
+						retryAfterMs?: undefined;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/service-grants/renew": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				requestId?: string | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						token: string;
+						expiresAt: number;
+						scopes: ("files:write" | "plugin_data:read" | "plugin_data:write")[];
+					};
+				};
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Failed to mint a unique grant token";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthorized";
+					} | {
+						message: "Unauthenticated";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied";
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Not found";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/service-grants/seal-processing": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				destinationPathPrefix: string;
+				requestId?: string | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						token: string;
+						expiresAt: number;
+						scopes: ("files:write" | "plugin_data:read" | "plugin_data:write")[];
+						principalKey: string;
+						destinationPathPrefix: string;
+						actorUserId: string;
+						organizationId: string;
+						workspaceId: string;
+						installationId: string;
+					};
+				};
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Failed to mint a unique grant token";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthorized";
+					} | {
+						message: "Unauthenticated";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied";
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Not found";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/service-grants/verify-live": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				Authorization: string;
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				installationId: string;
+				phase: "interactive" | "processing";
+				destinationPathPrefix: string | null;
+				scopes: ("files:write" | "plugin_data:read" | "plugin_data:write")[];
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						installationId: string;
+						phase: "interactive" | "processing";
+						scopes: ("files:write" | "plugin_data:read" | "plugin_data:write")[];
+						destinationPathPrefix: string | null;
+						expiresAt: number;
+						contentPermissions: {
+							read: boolean;
+							write: boolean;
+						};
+						message?: undefined;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthorized";
+						installationId?: undefined;
+						phase?: undefined;
+						scopes?: undefined;
+						destinationPathPrefix?: undefined;
+						expiresAt?: undefined;
+						contentPermissions?: undefined;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Request body validation failed" | "Failed to parse request body as JSON";
+						installationId?: undefined;
+						phase?: undefined;
+						scopes?: undefined;
+						destinationPathPrefix?: undefined;
+						expiresAt?: undefined;
+						contentPermissions?: undefined;
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "This grant is for another installation";
+						installationId?: undefined;
+						phase?: undefined;
+						scopes?: undefined;
+						destinationPathPrefix?: undefined;
+						expiresAt?: undefined;
+						contentPermissions?: undefined;
+					} | {
+						message: "This grant is in another phase";
+						installationId?: undefined;
+						phase?: undefined;
+						scopes?: undefined;
+						destinationPathPrefix?: undefined;
+						expiresAt?: undefined;
+						contentPermissions?: undefined;
+					} | {
+						message: "This grant writes to another destination";
+						installationId?: undefined;
+						phase?: undefined;
+						scopes?: undefined;
+						destinationPathPrefix?: undefined;
+						expiresAt?: undefined;
+						contentPermissions?: undefined;
+					} | {
+						message: "This grant no longer has the scopes it needs";
+						installationId?: undefined;
+						phase?: undefined;
+						scopes?: undefined;
+						destinationPathPrefix?: undefined;
+						expiresAt?: undefined;
+						contentPermissions?: undefined;
+					} | {
+						message: "This grant's member can no longer use the scopes it needs";
+						installationId?: undefined;
+						phase?: undefined;
+						scopes?: undefined;
+						destinationPathPrefix?: undefined;
+						expiresAt?: undefined;
+						contentPermissions?: undefined;
 					};
 				};
 			};
@@ -1255,10 +2495,10 @@ export type BonoboHttpApi = {
 						message: "Unauthenticated" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					} | {
+						message: string;
+					} | {
 						message: "Unauthenticated" | "Permission denied";
 						retryAfterMs?: undefined;
-					} | {
-						message: string;
 					};
 				};
 				403: {
@@ -1266,10 +2506,10 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
+						message: string;
+					} | {
 						message: "Unauthenticated" | "Permission denied";
 						retryAfterMs?: undefined;
-					} | {
-						message: string;
 					};
 				};
 				400: {

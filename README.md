@@ -29,20 +29,20 @@ Service grant (publisher-registered services):
 
 The host exchange works for any plugin whose publisher registered a service secret with the host; the publisher settings screen issues the secret once and can rotate it. A plugin with no registration cannot obtain a service grant.
 
-- `plugin.service.connect` — lets the plugin's UI token from a page or a file view participate in the exchange, but grants no API scope itself. The exchange reads only the session's installation and member, so both frame kinds work the same. The service must also authenticate with the publisher's registered service secret. Declaring it requires `plugin.data.read` or `workspace.files.write`. A Files-only registration may receive an empty-scope interactive grant; file authority begins only after sealing.
+- `plugin.service.connect` — lets the plugin's UI token from a page or a file view participate in the exchange, but grants no API scope itself. The exchange reads only the session's installation and member, so both frame kinds work the same. The service must also authenticate with the publisher's registered service secret. Declaring it requires `plugin.data.read`, `workspace.files.write`, or `workspace.members.read`. A Files-only registration may receive an empty-scope interactive grant; file authority begins only after sealing.
 - `plugin.data.read` — an eligible service grant may read the plugin's own document store.
 - `plugin.data.write` — an eligible service grant may write the plugin's document store. A frame's UI token never receives this scope, whatever the installation accepted: a UI session can belong to an anonymous identity and is the surface an XSS reaches first, so a write from there would become injected input the backend later acts on with its secrets.
-- `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant, capped by an exact destination path prefix. The interactive exchange still never mints this scope; the service gets it by sealing (below). A sealed grant may call the `/api/v1/files/service-uploads/*` routes, `/api/v1/files/write` for Markdown, and `/api/v1/files/plugin-archive` for one matching file. Existing files need exact `plugin-name` metadata matching the installation, including same-plugin invoke output or member-labeled files. Live grant, capability, actor permissions, seal, and locks still apply. Other generic `/api/v1/files/*` routes refuse service grants. Removing a label does not cancel an accepted upload or change its separate target cleanup rules.
+- `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant, capped by an exact destination path prefix. The interactive exchange still never mints this scope; the service gets it by sealing (below). A sealed grant may call the `/api/v1/files/service-uploads/*` routes, `/api/v1/files/write` for editable text, and `/api/v1/files/plugin-archive` for one matching file. Existing files need exact `plugin-name` metadata matching the installation, including same-plugin invoke output or member-labeled files. Live grant, capability, actor permissions, seal, and locks still apply. Registered writer requests also reach the public folder, access, inspection, generation, and undo contracts below. Removing a label does not cancel an accepted upload or change its separate target cleanup rules.
 - `workspace.files.create-read-only` — lets a sealed service upload ask for a direct read-only lock on the file it creates. It cannot lock existing member files. Declaring it also requires `workspace.files.write`.
-- `workspace.files.own-write` and `workspace.files.own-access` — registered external backends may use the separate own-file bridge with a sealed grant and the current service secret. It pins a fresh dataset root, folder IDs, writer generation, and write receipts. Private readers use attached bindings; a Files manager may take over sharing. Current actor/account permissions, labels, and file policies still apply. The bridge's `/api/internal/plugins/files/*` routes are a separate host contract and are not exported in `BonoboHttpApi`. They do not widen the generic service-upload routes above.
+- `workspace.files.own-write` and `workspace.files.own-access` — registered services use public Files APIs with a sealed grant and current service secret. Optional writer conditions bind the root, folder IDs, generation, and replay receipts. Private readers use attached bindings; a Files manager may take over sharing. Current actor/account permissions, labels, and file policies still apply. These contracts are exported in `BonoboHttpApi` and leave ordinary service-upload rules unchanged.
 
 ### Grant lifecycle and service upload routes
 
-An interactive grant comes from `POST /api/internal/plugins/service-grants/exchange` (UI token + registered service secret) and carries the publisher's registered scopes minus `files:write` — for Council's registration, `plugin_data:read` and `plugin_data:write` — for one working day, renewable. When the service's processing work begins (for Council: when a meeting closes), the service seals it:
+An interactive grant comes from `POST /api/v1/plugins/service-grants/exchange` (UI token + registered service secret) and carries the publisher's registered scopes minus `files:write` — for Council's registration, `plugin_data:read` and `plugin_data:write` — for one working day, renewable. When the service's processing work begins (for Council: when a meeting closes), the service seals it:
 
-Exchange, renew, and seal-processing accept an optional persisted `requestId`. A lost response can be recovered through `/api/internal/plugins/service-grants/recover` with the original bearer, current service secret, operation, request ID, and original destination for a seal. The host returns the exact saved credential while it remains current. Encrypted response storage lasts at most 24 hours; expiry requires reconnect. An old bearer cannot start new work. Calls without a request ID keep their existing behavior.
+Exchange, renew, and seal-processing accept an optional persisted `requestId`. A lost response can be recovered through `/api/v1/plugins/service-grants/recover` with the original bearer, current service secret, operation, request ID, and original destination for a seal. The host returns the exact saved credential while it remains current. Encrypted response storage lasts at most 24 hours; expiry requires reconnect. An old bearer cannot start new work. Calls without a request ID keep their existing behavior.
 
-- `POST /api/internal/plugins/service-grants/seal-processing` — service secret + live interactive `psg_` bearer, body `{ destinationPathPrefix }` (a normalized absolute path of canonical lowercase folder names, not `/`). Mints a NEW processing-phase grant for the same installation and member with exactly the registered scopes (for Council: `["plugin_data:read", "plugin_data:write", "files:write"]`), bound to exactly that prefix, expiring six days from the seal. Renewal rotates a processing token but never moves that deadline. A processing grant cannot seal again, so the window cannot roll forever. Requires `plugin.service.connect` plus the workspace capability gating each registered scope, and refuses if any is missing rather than minting a narrower grant. `workspace.files.create-read-only` is deliberately not required here; `create-target` still checks it on every call.
+- `POST /api/v1/plugins/service-grants/seal-processing` — service secret + live interactive `psg_` bearer, body `{ destinationPathPrefix }` (a normalized absolute path of canonical lowercase folder names, not `/`). Mints a NEW processing-phase grant for the same installation and member with exactly the registered scopes (for Council: `["plugin_data:read", "plugin_data:write", "files:write"]`), bound to exactly that prefix, expiring six days from the seal. Renewal rotates a processing token but never moves that deadline. A processing grant cannot seal again, so the window cannot roll forever. Requires `plugin.service.connect` plus the workspace capability gating each registered scope, and refuses if any is missing rather than minting a narrower grant. `workspace.files.create-read-only` is deliberately not required here; `create-target` still checks it on every call.
 
 The sealed grant then drives the upload pipeline — plain `Authorization: Bearer <psg_...>` calls (no service secret header), all POST, all requiring the `files:write` scope and the `processing` phase:
 
@@ -96,6 +96,31 @@ A plugin may declare a YAML editor and attach generic filters to its events. The
 
 `source.path` + `pathIsUnderAny` expects up to 32 unique canonical absolute folder paths at `configurationPath`. `/` matches every folder, a folder matches its descendants, and an empty list disables that automatic event. Manual runs do not apply automatic event filters. A manual or backfill re-run delivers the same `source` with `event: "files.run.requested"` instead of `"files.upload.completed"`. The parsed YAML object is available to every backend run as `event.configuration`; it is `null` when the plugin has no configuration declaration.
 
+## Identity and members for external services
+
+A plugin can use the current Press login without another account. Register its server through the
+publisher's Service controls and declare `plugin.service.connect` plus `workspace.members.read`.
+An identity-only service may register with `scopes: []`; this grants no Files or data access.
+
+The server calls `POST /api/v1/plugins/identity/exchange` with the frame's `plu_` bearer and
+`X-Bonobo-Service-Authorization: Bearer <pse_...>`. Body: `{exchangeId,requestedExpiresAt}`.
+Press returns `{jwt}` after checking the exact live installation, registration, version, account,
+session, member, and consent. The JWT uses ES256, issuer `<Press HTTP origin>/plugins-services`,
+audience `bonobo-plugin:<plugin name>`, and the normal Press JWKS. Verify its signature, audience,
+issuer, exchange ID, subject, and expiry. The deadline is at most 30 seconds after validation.
+
+The signed facts include the user and membership IDs, membership lifetime, tenant and installation,
+version and account, display name, read/write/owner flags, and required access revision. Cache them
+only until the signed deadline. The service must enforce expiry on reads, writes, and live queries.
+
+`POST /api/v1/plugins/members/list` takes `{installationId,cursor,startRevision}` and returns at most
+50 member facts plus the start/current revision and next cursor. `POST /api/v1/plugins/access/changes`
+takes `{installationId,afterRevision,limit}` (1–100) and returns ordered events and continuation
+revisions. These server calls need the service-secret header. They require the connection created by
+a valid page exchange. A secret alone cannot attach a service to a workspace. Version or account
+changes require a fresh exchange; a removed installation exposes only its terminal access result.
+Unrelated access events contain no private profile data. A stale cursor requires a new snapshot.
+
 ## Public host APIs
 
 These are plain `fetch` calls against `env.BONOBO.host.apiOrigin` with `Authorization: Bearer <env.BONOBO.host.token>` — the same `/api/v1/*` machine API used by developer API keys.
@@ -135,7 +160,7 @@ type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 | Route                              | Body                                                                                                                                                                                                                                                              | Response                                                                                                                                          |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /api/v1/files/download-urls` | `{ fileNodeIds, expiresInSeconds?, download? }` (`expiresInSeconds`: 1–900, defaults to 900; the granted TTL is clamped below the remaining run-token lifetime with a one-second signing margin)                                                                                                 | `{ items, errors, truncated }`; each item is `{ fileNodeId, name, contentType, url, expiresAt }` (`expiresAt` in epoch ms) and each error is `{ fileNodeId, message }` |
-| `POST /api/v1/files/write`         | `{ path, content, overwrite?: "replace" \| "fail", access?: { readOnly?: boolean }, expectedParentNodeId?: string }` — V1 writes Markdown only. `overwrite` defaults to `"replace"`; writing over an existing editable Markdown file replaces its content in place and keeps the same `nodeId`.  | `{ path, nodeId, contentType }`                                                                                                                   |
+| `POST /api/v1/files/write`         | `{ path, content, overwrite?: "replace" \| "fail", access?: { readOnly?: boolean }, expectedParentNodeId?: string }` — editable text types use the normal content-type rules. `overwrite` defaults to `"replace"`; writing over an existing editable Markdown file replaces its content in place and keeps the same `nodeId`.  | `{ path, nodeId, contentType }`                                                                                                                   |
 | `POST /api/v1/files/touch`         | `{ paths }` — creates empty editable Markdown files, at most 8 per call, so members see where a run's outputs will land before the run fills them. Paths follow the `files/write` rule. The call is idempotent.                                                   | `{ files }`; each entry is `{ path, nodeId, created }`, and `created` is `false` when the file already existed                                     |
 | `POST /api/v1/activities/start`    | `{ title, timeoutMs }` (`title` up to 120 characters after trimming, or `""` to let the host compose one; `timeoutMs` at most `300000`, and a larger value answers `400`)                                                                                         | `{ activityId }`; a second call in the same run answers `409`                                                                                      |
 | `POST /api/v1/plugin-data/read`    | `{ collection, key }`                                                                                                                                                                                                                                             | `{ document }` — one stored document, or `null` when the key does not exist                                                                        |
@@ -145,9 +170,9 @@ type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 
 New plugin files and folders get ordinary metadata `source: plugin` and `plugin-name: <name>`. `source` is descriptive; only the exact string `plugin-name` selects a node. Members may change either key, including opting a member-created item into a plugin. In-place writes and retries keep the existing map. No update restores removed labels. Extra import metadata such as `original-name` stays on the leaf, and reused ancestors keep their maps.
 
-Invoke `files/write` accepts optional `expectedParentNodeId`. Use the ID returned by a fresh ensure of a private output folder. The host requires that exact active folder at the requested immediate parent path during prepare and final publication. A missing, moved, archived, or replaced parent answers 409 before publication; this write never recreates the parent. Malformed IDs answer 400; non-invoke callers are refused with 403. The option does not require a matching parent label when updating an existing matching file. The existing file-target identity check still applies.
+Invoke `files/write` accepts optional `expectedParentNodeId`. Use the ID returned by a fresh ensure of a private output folder. The host requires that exact active folder at the requested immediate parent path during prepare and final publication. A missing, moved, archived, or replaced parent answers 409 before publication; this write never recreates the parent. Malformed IDs answer 400. Registered service writer requests require this precondition too. The option does not require a matching parent label when updating an existing matching file. The existing file-target identity check still applies.
 
-Generate this HTTP contract from the host with `vp env exec pnpm --dir packages/app run generate:plugin-sdk-types`. Do not hand-edit its declaration or cast around an older SDK. For a release, verify and mirror the SDK first, then pin its real commit in the plugin's package and lockfile. Build both plugin bundles and the manifest, publish the exact reviewed commit, update the installation, and verify its served version and bytes. Pause old Chitchat writers during this cutover: they do not send the parent identity check.
+Generate this HTTP contract from the host with `vp env exec pnpm --dir packages/app run generate:plugin-sdk-types`. Do not hand-edit its declaration or cast around an older SDK. For a release, verify and mirror the SDK first, then pin its real commit in the plugin's package and lockfile. Build both plugin bundles and the manifest, publish the exact reviewed commit, update the installation, and verify its served version and bytes. Preserve pending writer requests and receipts when changing the public contract.
 
 Plugin replacement of an existing binary/noneditable file requires the actor's live manage permission on that target. All target, parent, lock, and requested-access checks run before archive. The old node retains its grants and reader binding; the new node inherits its parent's sharing. An in-place text update keeps the same node, metadata, and sharing.
 
@@ -171,11 +196,46 @@ Where a run may write depends on how it started:
 - `POST /api/v1/files/plugin-archive` (body `{ path }`, response `{ archivedNodes }`) lets an invoke run archive a matching folder or file with its subtree. Every affected node must match and pass current permissions and locks before any changes happen. The call releases permitted plugin locks before archive. A sealed service grant may archive one matching file inside its destination. Upload-triggered runs cannot use ensure, access, or archive, even when their output has matching labels.
 - `activities/start` is optional: a run that never calls it stays out of the workspace activity feed. After a run opts in, the host tracks the rest — the files the run touches or writes become the activity's targets, and the run's own outcome closes it.
 
-For the generic plugin-scope binding above, private-scope membership changes update the file's readers while attached. A real manual sharing change detaches only that node's binding and keeps its remaining grants. Future scope changes then leave those readers alone. Failed or no-op sharing and metadata edits keep the binding. Explicit plugin access may attach it again with manage permission. A foreign installation binding refuses until it drains or is detached. Uninstall removes these generic bindings but preserves file grants. The external own-file bridge keeps its separate binding and membership-lifetime tags with historical copies. Reinstall and repeated ensure do not restore old sharing. The organization owner still reads everything.
+For the generic plugin-scope binding above, private-scope membership changes update the file's readers while attached. A real manual sharing change detaches only that node's binding and keeps its remaining grants. Future scope changes then leave those readers alone. Failed or no-op sharing and metadata edits keep the binding. Explicit plugin access may attach it again with manage permission. A foreign installation binding refuses until it drains or is detached. Uninstall removes these generic bindings but preserves file grants. Registered public writers keep their separate binding and membership-lifetime tags with historical copies. Reinstall and repeated ensure do not restore old sharing. The organization owner still reads everything.
 
-Chitchat and Council write files one way from their own databases. Files edits never change chat data or Council D1. Chitchat uses durable transcript jobs, saved folder/file IDs, writer generations, and exact write receipts through the external bridge. A blocked transcript does not undo a saved message; its sync status is separate from the message receipt. Ordinary sync preserves unrelated manual text; a confirmed rebuild may replace it. Council replaces the full note on a later source revision. A refused pending revision can retry after access is restored while its grant remains live; a caught-up note needs another source revision.
+Chitchat and Council write files one way from their own databases. Files edits never change chat data or Council D1. Chitchat uses durable transcript jobs, saved folder/file IDs, writer generations, and exact write receipts through public Files APIs. A blocked transcript does not undo a saved message; its sync status is separate from the message receipt. Ordinary sync preserves unrelated manual text; a confirmed rebuild may replace it. Council replaces the full note on a later source revision. A refused pending revision can retry after access is restored while its grant remains live; a caught-up note needs another source revision.
 
 Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope, permission, or matching label, `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` overwrite, current lock, or target/parent identity conflict, `429` run call quota or rate limit, `500` curated storage failure. An event or invoke run may succeed without writing a file. The host requires a complete successful response and settled API calls.
+
+### Conditional service writes
+
+These public routes are also typed in `BonoboHttpApi`. Their types do not grant a browser access.
+Keep the service secret on the plugin server. Writer requests use both the current sealed `psg_`
+bearer and the `X-Bonobo-Service-Authorization` header.
+
+| Route | Writer request | Result |
+| --- | --- | --- |
+| `/api/v1/files/plugin-folders/ensure` | `{path,writer:{resourceKey,rootNodeId},access?}` | Normal folder result plus `writer` with saved writer/root/folder IDs, generation, reader revision, and detach state |
+| `/api/v1/files/plugin-writers/inspect` | `{writerId,path,maxBytes}` | Current editable text and type, exact target/parent IDs, opaque revision, generation, and reader state |
+| `/api/v1/files/write` | Normal text fields and `expectedParentNodeId`, plus `writer:{writerId,operationId,writerGeneration,sequence,expectedNodeId,expectedContentRevision,expectedReaderRevision,contentHash}` | Normal write result plus `receipt` |
+| `/api/v1/files/plugin-archive` | `{path,writer:{writerId,operationId,writerGeneration,sequence,nodeId,expectedContentRevision?}}` | Archived count plus `receipt`; exactly one saved file |
+| `/api/v1/files/plugin-access/set` | `{path,access:{readers},writer:{writerId,operationId,writerGeneration,expectedReaderRevision}}` | Node ID plus `receipt` |
+| `/api/v1/files/plugin-access/undo` | `{writerId,operationId,writerGeneration}` and exactly one `receiptId` or `originalReaderOperationId` | Exact undo acknowledgement |
+| `/api/v1/files/plugin-writers/advance` | `{writerId,operationId,writerGeneration,nextGeneration}` | Generation receipt |
+
+The opaque resource key is 1–512 characters and belongs to the plugin. A null root ID creates an
+unused sealed root; later writers use its exact root ID. Repeating a key keeps the original IDs
+and manual sharing. An existing path alone never proves ownership. Optional readers are up to 50
+unique `{userId,membershipLifetime}` pairs from the public member facts. An empty restricted folder
+is created before text. The actor and installation account still need explicit Files grants.
+
+Persist each operation and its exact conditions before sending it. Replays must keep the same
+normalized text, content hash, content type, non-collaborative creation mode, and create-time policy.
+The final transaction checks those conditions and saves its receipt with the file change. A changed
+request, stale generation, or newer sequence returns 409. Writer mode derives overwrite from the
+expected node ID and refuses `skipIfUnchanged:true`. The API supports all editable text types;
+product formats and smaller size limits belong in the plugin.
+
+Reader undo restores only the recorded previous readers whose membership lifetimes are still
+current. Its original proof can outlive expiry or lost member access and grants no new operation.
+Upgrade recovery needs a current sealed grant for the same installation and exact root, plus live
+write and sharing-management permission. Manual Files sharing detaches automatic reader updates
+and is never silently restored.
 
 ## Typed worker example
 

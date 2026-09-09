@@ -20,23 +20,23 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  * - `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant,
  *   capped by an exact destination path prefix. It never reaches the frame. The interactive
  *   exchange never mints that scope; the service gets it through the seal-processing route. A
- *   sealed grant may use the `/api/v1/files/service-uploads/*` routes, write Markdown inside its
+ *   sealed grant may use the `/api/v1/files/service-uploads/*` routes, write editable text inside its
  *   seal through `/api/v1/files/write`, and archive a file marked for this plugin through
  *   `/api/v1/files/plugin-archive`.
  * - `workspace.files.create-read-only` — lets the service request a direct read-only lock when it
  *   creates a file. Declaring it also requires `workspace.files.write`.
  * - `workspace.files.own-write` — backend invoke runs may create, update, and archive files and
  *   folders marked by matching `plugin-name` metadata. Members may change or remove this label.
- *   Registered external backends may use the separate own-file bridge with a sealed grant and
- *   current service secret. That bridge also pins the output scope and writer generation.
+ *   Registered services may use public Files APIs with a sealed grant and current service secret.
+ *   An optional writer binds the output folder, write conditions, and replay receipts.
  *   Declaring it also requires `workspace.files.write`.
  * - `workspace.files.own-access` — backend invoke runs may set locks and readers on matching files
- *   and folders. The external own-file bridge may create private reader bindings and update them
+ *   and folders. A registered service may create private reader bindings and update them
  *   while attached. Members with manage permission may take over sharing.
  *   Declaring it also requires `workspace.files.own-write`.
- * - `plugin.data.read` — backend runs, UI pages and file views, and eligible Council service grants
+ * - `plugin.data.read` — backend runs, UI pages and file views, and eligible registered service grants
  *   may read the plugin's own document store.
- * - `plugin.data.write` — backend runs and eligible Council service grants may write the plugin's own
+ * - `plugin.data.write` — backend runs and eligible registered service grants may write the plugin's own
  *   document store. A frame's UI token never receives the write scope, whatever the installation
  *   accepted. Declaring it also requires `plugin.data.read`.
  * - `plugin.data.user-write` — the plugin's UI pages and file views may create, change, and delete
@@ -51,15 +51,16 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   session's installation and member, so both frame kinds work the same. The outside service must
  *   also authenticate with the exchange secret from the plugin's publisher-managed service
  *   registration; the registration's scopes decide what the grant carries. Declaring it requires
- *   `plugin.data.read` or `workspace.files.write` as well. A Files-only registration may receive an
- *   empty-scope interactive grant; it gains file authority only after sealing.
+ *   `plugin.data.read`, `workspace.files.write`, or `workspace.members.read` as well. A Files-only
+ *   registration may receive an empty-scope interactive grant; it gains file authority only after sealing.
  * - `ui.outbound.fetch` — the plugin's UI pages and file views, running in the member's browser, may
  *   call the manifest's bare HTTPS or WSS `uiOutboundOrigins`. The browser enforces `connect-src`. It
  *   and `uiOutboundOrigins` require each other: neither may be declared alone.
  * - `workspace.members.read` — the plugin's UI pages and file views may list every member of the
  *   workspace, as user ids and display names. Email is never returned. Without it a frame can still
  *   resolve names for ids it already holds, which enumerates nobody. Every member reads the roster
- *   under one rule, including a member who signed in anonymously.
+ *   under one rule, including a member who signed in anonymously. With `plugin.service.connect`,
+ *   a registered service may exchange the current page identity and read workspace member changes.
  */
 export type BonoboCapability =
 	| "plugin.secrets.read"
