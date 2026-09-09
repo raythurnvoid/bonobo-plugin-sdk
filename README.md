@@ -222,7 +222,12 @@ The opaque resource key is 1–512 characters and belongs to the plugin. A null 
 unused sealed root; later writers use its exact root ID. Repeating a key keeps the original IDs
 and manual sharing. An existing path alone never proves ownership. Optional readers are up to 50
 unique `{userId,membershipLifetime}` pairs from the public member facts. An empty restricted folder
-is created before text. The actor and installation account still need explicit Files grants.
+is created before text. On first creation with readers, the API also grants the exact bound account
+**Can manage** on that new private folder. Both changes commit together. The actor needs
+`workspace.service_accounts.manage` and every permission in **Can manage** on the nearest existing
+parent or workspace root. The account must pass the normal parent write and management checks.
+This adds no human write permission. Repeating ensure never restores a removed account grant or
+changes manual sharing. Restore a removed grant through normal Files sharing before new writes.
 
 Persist each operation and its exact conditions before sending it. Replays must keep the same
 normalized text, content hash, content type, non-collaborative creation mode, and create-time policy.

@@ -787,7 +787,7 @@ export type BonoboHttpApi = {
 					} | {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "Plugin file operations are not ready" | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
 						path?: undefined;
 						nodeId?: undefined;
 						contentType?: undefined;
@@ -805,7 +805,7 @@ export type BonoboHttpApi = {
 					} | {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "Plugin file operations are not ready" | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
 						path?: undefined;
 						nodeId?: undefined;
 						contentType?: undefined;
@@ -820,7 +820,7 @@ export type BonoboHttpApi = {
 					body: {
 						message: string;
 					} | {
-						message: "Plugin file operations are not ready" | "Invalid file operation ID";
+						message: "Invalid file operation ID";
 						path?: undefined;
 						nodeId?: undefined;
 						contentType?: undefined;
@@ -835,27 +835,7 @@ export type BonoboHttpApi = {
 					body: {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "Plugin file operations are not ready" | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
-						path?: undefined;
-						nodeId?: undefined;
-						contentType?: undefined;
-						receipt?: undefined;
-						unchanged?: undefined;
-					};
-				};
-				503: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "Plugin file operations are not ready" | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
-						path?: undefined;
-						nodeId?: undefined;
-						contentType?: undefined;
-						receipt?: undefined;
-						unchanged?: undefined;
-					} | {
-						message: "Plugin file operations are not ready" | "Invalid file operation ID";
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
 						path?: undefined;
 						nodeId?: undefined;
 						contentType?: undefined;
@@ -1186,14 +1166,6 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				503: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-					};
-				};
 			};
 		};
 	};
@@ -1295,14 +1267,6 @@ export type BonoboHttpApi = {
 					};
 				};
 				409: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-					};
-				};
-				503: {
 					headers: {
 						[x: string]: string;
 					};
@@ -1432,14 +1396,6 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				503: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-					};
-				};
 			};
 		};
 	};
@@ -1507,7 +1463,7 @@ export type BonoboHttpApi = {
 					body: {
 						message: "Request body validation failed" | "Failed to parse request body as JSON";
 					} | {
-						message: "Plugin file operations are not ready" | "Invalid file operation ID";
+						message: "Invalid file operation ID";
 					};
 				};
 				409: {
@@ -1516,14 +1472,6 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: "Permission denied" | "This item is read-only." | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
-					};
-				};
-				503: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Plugin file operations are not ready" | "Invalid file operation ID";
 					};
 				};
 			};
@@ -1604,14 +1552,6 @@ export type BonoboHttpApi = {
 					};
 				};
 				409: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-					};
-				};
-				503: {
 					headers: {
 						[x: string]: string;
 					};
@@ -1713,14 +1653,6 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				503: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-					};
-				};
 			};
 		};
 	};
@@ -1791,15 +1723,6 @@ export type BonoboHttpApi = {
 					} | {
 						code: "unavailable";
 						message: "Installation is unavailable";
-					};
-				};
-				503: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						code: "unavailable";
-						message: "Service access is unavailable";
 					};
 				};
 				410: {
@@ -1898,15 +1821,6 @@ export type BonoboHttpApi = {
 						message: "Installation is unavailable";
 					};
 				};
-				503: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						code: "unavailable";
-						message: "Service access is unavailable";
-					};
-				};
 				410: {
 					headers: {
 						[x: string]: string;
@@ -1950,9 +1864,9 @@ export type BonoboHttpApi = {
 								member: {
 									active: boolean;
 									displayName: string | null;
+									membershipLifetime: number;
 									hostUserId: string;
 									hostMembershipId: string | null;
-									membershipLifetime: number;
 									canRead: boolean;
 									canWrite: boolean;
 									isOwner: boolean;
@@ -2018,15 +1932,6 @@ export type BonoboHttpApi = {
 					} | {
 						code: "unavailable";
 						message: "Installation is unavailable";
-					};
-				};
-				503: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						code: "unavailable";
-						message: "Service access is unavailable";
 					};
 				};
 				410: {
