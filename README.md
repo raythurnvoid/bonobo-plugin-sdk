@@ -15,6 +15,8 @@ Backend run (`fetch(request, env, ctx)`):
 - `workspace.files.read` — the run's host token also carries `files:list` and `files:read`, so a backend run can call `/api/v1/files/list` and `/api/v1/files/read` with the acting member's visibility: a file or folder that member cannot see answers `404` or an empty page. `files/download-urls` stays bound to the triggering upload.
 - `workspace.files.own-write` — an invoke run may create, update, and archive files and folders marked for this plugin. Only exact string `plugin-name` metadata matching the installed plugin name selects an existing node. Members may edit or remove the label through ordinary metadata controls. Actor permissions and current locks still apply. Declaring it also requires `workspace.files.write`.
 - `workspace.files.own-access` — an invoke run may set locks and readers on matching files and folders through `/api/v1/files/plugin-access/set`. Members with manage permission may change them. Declaring it also requires `workspace.files.own-write`.
+- `workspace.volumes.write` — write the installation's external Mounts through the five `/api/v1/volumes/*` routes. Workspace readers and the chat agent get read-only access.
+- `plugin.schedule.run` — run at the declared interval and request a follow-up. The selected user must grant their own scopes; every operation still checks their current access.
 
 Plugin page and file view (the sandboxed iframe):
 
@@ -35,6 +37,11 @@ The host exchange works for any plugin whose publisher registered a service secr
 - `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant, capped by an exact destination path prefix. The interactive exchange still never mints this scope; the service gets it by sealing (below). A sealed grant may call the `/api/v1/files/service-uploads/*` routes, `/api/v1/files/write` for editable text, and `/api/v1/files/plugin-archive` for one matching file. Existing files need exact `plugin-name` metadata matching the installation, including same-plugin invoke output or member-labeled files. Live grant, capability, actor permissions, seal, and locks still apply. Registered writer requests also reach the public folder, access, inspection, generation, and undo contracts below. Removing a label does not cancel an accepted upload or change its separate target cleanup rules.
 - `workspace.files.create-read-only` — lets a sealed service upload ask for a direct read-only lock on the file it creates. It cannot lock existing member files. Declaring it also requires `workspace.files.write`.
 - `workspace.files.own-write` and `workspace.files.own-access` — registered services use public Files APIs with a sealed grant and current service secret. Optional writer conditions bind the root, folder IDs, generation, and replay receipts. Private readers use attached bindings; a Files manager may take over sharing. Current actor/account permissions, labels, and file policies still apply. These contracts are exported in `BonoboHttpApi` and leave ordinary service-upload rules unchanged.
+
+Chat agent (see [MCP servers and skills](#mcp-servers-and-skills)):
+
+- `agent.mcp.connect` — the chat agent may call the tools of the manifest's remote `mcpServers`, with member data from the thread as input. A server never gets a Press credential, only its declared headers and sign-in. The capability and `mcpServers` require each other.
+- `agent.skills.contribute` — the chat skill catalog lists the manifest's `skills`, and the agent reads them from the plugin's read-only mount. Nothing is written into the workspace. The capability and `skills` require each other.
 
 ### Grant lifecycle and service upload routes
 
@@ -64,7 +71,7 @@ Contract highlights:
 - Upload with a signed PUT directly to the fresh asset's `uploadUrl`. Send exactly the returned `headers`, including signed `If-None-Match: *`, then poll `finalize` until `state` is `"committed"`. A PUT 412 means the attempt already has an object; keep polling rather than discarding it or assuming the stored body equals this retry's body. Reusing one URL is the same attempt. Use `remint` for a fresh attempt when the 15-minute URL expires or a retry needs new bytes. Finalize never mints an attempt. Its `"released"` state closes this target; use a new target and a free path for another upload. The R2 event confirms the object, records its actual size, and charges it. The declared size never reaches the bill.
 - A target you create is a real, empty file in the workspace from that moment. If your service crashes before the PUT, the empty file stays there and a member can delete it. After eight days the host retires the unfinished attempt and deletes its object; it keeps the placeholder and target. A later remint or exact pending create replay gets a fresh asset and key immediately, even while old cleanup runs. Send the whole file again — there is no resume. A retired attempt cannot publish if its event arrives late. A read-only placeholder defers retirement because a later lock does not cancel an accepted upload. Cancel the target with `delete` when you know the upload will not happen.
 - `delete` handles every reachable pending or committed file that an installation stored under a `targetKey`, across upload runs in the sealed destination. Its `idempotencyKey` does not narrow that cleanup to one run. Moved-out member-owned files are outside this door. The host checks each active file's current path and restricted-file write access before it changes anything. A restricted file answers `403`; a member lock answers `409`. The only lock exception is the direct read-only lock created by the exact live target, while the capability is still accepted and the actor still manages that file's ACL. An unlock and later member relock removes this exception. It works days later under a NEW grant sealed to the same destination. A committed upload is a normal member file, so the host archives it and keeps its content, metadata, and stored object. An unfinished upload is only an empty placeholder, so the host cancels it and deletes its upload object. Both answer `"deleted"` in the same request. Council uses `archive-destination` instead because deleting a meeting must keep its whole folder as one restorable set. Released history is not enumerated, so a replay may return one representative path instead of every old path. A late event for a retired or cancelled attempt still updates the target's largest observed size and queues that exact object for deletion. It cannot change the winning object's size or revive the target. A moved-out accepted upload still finishes and charges its real size, but its old service doors stay closed. Nothing is ever refunded. An unknown key answers `404`. Replays keep answering.
-- `archive-destination` archives the whole destination folder, with every file still inside it, for the delete-meeting workflow. The body is empty on purpose: the seal names the folder, so the grant can never reach another one. Archiving is what "delete a file" means to a member — the folder leaves the file tree in one archive operation, so a member can restore the exact set. This call closes the current logical epoch under the same installation and seal. Restoring a folder from that closed epoch does not reopen its service calls, consume the live target cap, or let an archive replay take it again. A later create opens the next epoch. If a member restores an older service-created folder before its epoch was closed, the archive route can handle it after proving its stable id. A member-only folder that merely reused the path is never touched. Stored bytes stay charged; this quota never gives bytes back. A destination that was never created, or one a member already archived, answers `{ archivedNodes: 0 }`, so a replayed delete is happy. Before any archive write, the host validates the whole subtree. Restricted content answers `403`. Member, inherited, stale-target, or unrelated locks answer `409`. The host may pass this installation's exact live-target lock or a same-plugin named lock allowed by `workspace.files.create-read-only` consent. Outer locks still refuse the call.
+- `archive-destination` archives the whole destination folder, with every file still inside it, for the delete-meeting workflow. The body is empty on purpose: the seal names the folder, so the grant can never reach another one. Archiving is what "delete a file" means to a member — the folder leaves the file tree in one archive operation, so a member can restore the exact set. This call closes the current logical epoch under the same installation and seal. Restoring a folder from that closed epoch does not reopen its service calls, consume the live target cap, or let an archive replay take it again. A later create opens the next epoch. If a member restores an older service-created folder before its epoch was closed, the archive route can handle it after proving its stable id. A member-only folder that merely reused the path is never touched. The folder does not need an upload target: when the sealed grant created it through `/api/v1/files/write` alone (for example a meeting note written before any recording), the host recognizes its own `plugin-name` label on the folder and archives it the same way. Stored bytes stay charged; this quota never gives bytes back. A destination that was never created, or one a member already archived, answers `{ archivedNodes: 0 }`, so a replayed delete is happy. Before any archive write, the host validates the whole subtree. Restricted content answers `403`. Member, inherited, stale-target, or unrelated locks answer `409`. The host may pass this installation's exact live-target lock or a same-plugin named lock allowed by `workspace.files.create-read-only` consent. Outer locks still refuse the call.
 - The seal validates the destination as-is and refuses non-canonical folder names with `400`. Normalize your configured folder before sealing (for example `/Meetings` → `/meetings`); the host never normalizes it for you.
 - Error statuses: `400` invalid input, `401` dead grant/installation/membership, `403` missing scope, wrong phase, destination fence, a plan that does not include service file storage, or a full quota, `404` unknown target (including another workspace's), `409` idempotency conflicts or replay-after-release. R2 PUT can return `412` when that attempt already has an object; this is separate from host API errors.
 
@@ -95,6 +102,54 @@ A plugin may declare a YAML editor and attach generic filters to its events. The
 ```
 
 `source.path` + `pathIsUnderAny` expects up to 32 unique canonical absolute folder paths at `configurationPath`. `/` matches every folder, a folder matches its descendants, and an empty list disables that automatic event. Manual runs do not apply automatic event filters. A manual or backfill re-run delivers the same `source` with `event: "files.run.requested"` instead of `"files.upload.completed"`. The parsed YAML object is available to every backend run as `event.configuration`; it is `null` when the plugin has no configuration declaration.
+
+## Mounts and scheduled runs
+
+`BonoboAccountDeletedEvent` types the existing `users.account.deleted` event.
+Its `actorUserId` names the deleted user and `source` is null.
+
+Declare each mount in `mounts` as `{ id, description, configurationPath }`. The YAML value at that
+path is its name. Each published copy appears at `/.mounts/<mount-name>/<volume-key>` for chat.
+Mounts stay out of the Files sidebar. Every workspace reader can read them; do not store private
+per-person data there. Outside content is data, never instructions for the agent.
+
+A schedule event is `{ type: "schedule.interval.elapsed", schedule: { configurationPath } }`.
+Its YAML interval is a whole number from 15 to 10,080 minutes. The host manages the actor and consent,
+separately from YAML. First install needs explicit Me consent. Another user must grant permission
+before a manager selects them. Consent is a subset of accepted capabilities and live user access.
+Scheduled runs receive no Files write/download baseline or Activity feed opt-in.
+
+Use `BonoboScheduleIntervalElapsedEvent` for the body. `source` is null. The host supplies
+`schedule: { intervalMinutes, dueAt }` and `chain: { rootRunId, index, state }`.
+Root index is 0 and state is null. Request a child with
+`POST /api/v1/plugin-runs/follow-up`, body `{ state: JSON.stringify(nextState) }`.
+Only a successful run queues it. State is at most 16 KiB; never put secrets in it.
+A chain has at most 20 runs and 30 minutes. Each run has at most 20 host calls.
+An authenticated request past the run count returns 409 `chain_limit`. After the root deadline,
+the token expires and API requests return 401.
+
+Mount API request and response types come from `BonoboHttpApi`:
+
+| Route | Purpose |
+| --- | --- |
+| `/api/v1/volumes/list` | List published and open copies with usage and limits. |
+| `/api/v1/volumes/stage` | Open a new staging copy and retire any previous staging copy for that mount and key. |
+| `/api/v1/volumes/write-many` | Send up to 100 text files and 8 MB per call. Paths start with `/` within the copy, such as `/README.md`. |
+| `/api/v1/volumes/publish` | Swap the complete staging copy into view at once. |
+| `/api/v1/volumes/delete` | Hide a copy and queue cleanup. |
+
+Each copy holds at most 5,000 files and 30,000,000 bytes. Each installation holds at most 20,000
+files and 200,000,000 bytes across published and staging copies. The daily limit is 10,000 new paths
+per plugin per workspace. A new stored path costs 0.5 cents; replacing that path in the same staging
+copy costs nothing. Scheduled writes charge the current organization owner. No billing approval is
+needed. Check `written` and per-item `errors`; a 200 can contain refused files. Do not publish an
+incomplete copy. Stop on 402, 429, or a chain-limit refusal. Keep progress in published revisions and
+open copies so the next schedule can continue. Unpublished staging copies expire after 26 hours.
+Resume an open copy with its `stagingId` from `volumes/list`. Calling `volumes/stage` starts over.
+
+Disabling the installation hides its Mounts and stops active schedules. Consent, user, membership,
+version/account, and policy changes stop old chains. Rejoin needs fresh consent. Scheduled history
+stays saved, while terminal runs lose tokens and temporary state.
 
 ## Identity and members for external services
 
@@ -139,6 +194,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
 
+0.20.6 documents that `archive-destination` also archives a destination folder the sealed grant created through `/api/v1/files/write` alone. The runtime and types are unchanged.
+
 0.19.1 corrects the `archive-destination` lock documentation. The runtime and types are unchanged.
 
 0.19.0 adds the invoke-only `expectedParentNodeId` write precondition and documents editable plugin labels and member-controlled locks and sharing. It also includes the current host's generated text content types. The frontend runtime is unchanged.
@@ -176,9 +233,12 @@ Generate this HTTP contract from the host with `vp env exec pnpm --dir packages/
 
 Plugin replacement of an existing binary/noneditable file requires the actor's live manage permission on that target. All target, parent, lock, and requested-access checks run before archive. The old node retains its grants and reader binding; the new node inherits its parent's sharing. An in-place text update keeps the same node, metadata, and sharing.
 
-Call `activities/start` once, and call it early. The host only collects targets after the activity exists, so files a run writes before that call never become its targets, and nothing reports the miss.
+Call `activities/start` once to show the run in the workspace activity feed. The host already tracks
+the run in a hidden Activity, including files it touched or wrote before this call.
 
-`activities/start` needs `timeoutMs` because the host has no other way to know when a run has gone quiet. Estimate it from the amount of work the run usually does. If the run never finishes inside that window, the host closes the activity with the `timeout` end state.
+`timeoutMs` is an estimate of the remaining work. Passing it shows Overdue while the run continues.
+It does not change the execution deadline. A real execution timeout ends the Activity as
+`timed_out` and stops later API writes. The final outcome closes the same Activity.
 
 A stored document — what `plugin-data/read` and `plugin-data/list` return, and what the frontend `watch_*` doors deliver too — is `{ collection, key, value, revision, byteSize, writeMode, ownership, createdBy, updatedBy, createdAt, updatedAt }`. `revision` grows by one on every accepted write and restarts at 1 when a deleted key is created again. `ownership` is `"owned"` when only the member in `createdBy` may change or delete the document through interactive writers; `"shared"` documents follow the normal write rule. `writeMode` is `"versioned"` for documents a service producer writes through the versioned route, and interactive writers cannot touch those. `byteSize` is the stored value's canonical JSON size in bytes. `createdAt` and `updatedAt` are Unix epoch milliseconds.
 
@@ -194,7 +254,7 @@ Where a run may write depends on how it started:
 - With `workspace.files.read`, any backend run may also call `POST /api/v1/files/list` and `POST /api/v1/files/read` (the same request and response shapes the developer API uses), reading with the acting member's visibility.
 - With `workspace.files.own-access`, an invoke run may change a matching node through `POST /api/v1/files/plugin-access/set` (body `{ path, access: { readOnly?: boolean, readScopeId?: string | null } }`; at least one access field is required; response `{ nodeId }`). The actor needs live manage permission on the affected scope/subtree. `readOnly: true` sets a plugin lock, `readOnly: false` releases it, and `readScopeId` binds readers to one live private data scope or releases an attached binding with `null`. A member lock cannot be released through this door.
 - `POST /api/v1/files/plugin-archive` (body `{ path }`, response `{ archivedNodes }`) lets an invoke run archive a matching folder or file with its subtree. Every affected node must match and pass current permissions and locks before any changes happen. The call releases permitted plugin locks before archive. A sealed service grant may archive one matching file inside its destination. Upload-triggered runs cannot use ensure, access, or archive, even when their output has matching labels.
-- `activities/start` is optional: a run that never calls it stays out of the workspace activity feed. After a run opts in, the host tracks the rest — the files the run touches or writes become the activity's targets, and the run's own outcome closes it.
+- `activities/start` is optional: a run that never calls it stays out of the workspace activity feed. The host tracks targets from the start, and the run's outcome closes its Activity.
 
 For the generic plugin-scope binding above, private-scope membership changes update the file's readers while attached. A real manual sharing change detaches only that node's binding and keeps its remaining grants. Future scope changes then leave those readers alone. Failed or no-op sharing and metadata edits keep the binding. Explicit plugin access may attach it again with manage permission. A foreign installation binding refuses until it drains or is detached. Uninstall removes these generic bindings but preserves file grants. Registered public writers keep their separate binding and membership-lifetime tags with historical copies. Reinstall and repeated ensure do not restore old sharing. The organization owner still reads everything.
 
@@ -297,6 +357,33 @@ export default {
 };
 ```
 
+## MCP servers and skills
+
+A manifest may declare remote MCP servers for the chat agent, and skills for its skill catalog:
+
+```jsonc
+"mcpServers": [
+	{
+		"id": "search",
+		"title": "Search",
+		"transport": "http",
+		"url": "https://mcp.example.com/mcp",
+		"headers": [{ "name": "Authorization", "secret": "SEARCH_API_KEY" }],
+		"auth": { "kind": "secret_headers" },
+		"tools": null
+	}
+],
+"skills": [{ "name": "search-tips", "path": "dist/skills/search-tips/SKILL.md" }]
+```
+
+- `id` — matches `/^[a-z][a-z0-9-]{0,19}$/`, unique per manifest. `my` and ids starting with `my-` are reserved. At most 4 servers.
+- `url` — normalized `https:` URL of a Streamable HTTP server, at most 2048 characters. No credentials, fragment, IP address, or localhost. A query is allowed, but not a query name that looks like a key (it contains `key`, `token`, `secret`, `password`, `passwd`, `auth`, `credential`, or `signature` after removing `-` and `_`). Send keys in a header.
+- `headers` — at most 8. Each value is the value of one secret declared in `secrets` (which needs `plugin.secrets.read`). Press sets `Cookie`, `Host`, `Content-Type`, `Accept`, and every `Mcp-*` header itself, so they are refused.
+- `auth` — `{ "kind": "none" }` with no headers, `{ "kind": "secret_headers" }` with at least one header, or `{ "kind": "oauth", "issuer", "resource", "scopes" }`. With `oauth`, `issuer` and `resource` are `https:` URLs without a query or fragment, `resource` is null or the server URL or one of its parent paths, and `Authorization` is refused as a header because Press sends the member's token there.
+- `tools` — at most 200 tool names the agent may call, or null for every tool the server lists.
+- A skill `path` must be exactly `dist/skills/<name>/SKILL.md` and a `files[]` entry with contentType `"text/markdown"`. The file is at most 64 KiB and starts with YAML frontmatter between two `---` lines, with `name` equal to the skill name and a nonempty `description`. Publishing refuses a skill that fails these checks. At most 32 skills.
+- The chat catalog lists each skill at `/.plugins/<pluginName>/dist/skills/<name>/SKILL.md`, and the agent reads it from there with Bash. That read-only mount holds only the text files the review read, so a file next to `SKILL.md` is there only when it is a reviewed text file. Binary files in the skill folder are not.
+
 ## Frontend pages
 
 A manifest may declare UI pages the host app embeds:
@@ -358,7 +445,7 @@ Do not give your frame document a `no-referrer` referrer policy (for example `<m
 
 `client.convex` is the frame's own authenticated Convex client, a `ConvexReactClient` from `convex/react`, and `client.api` holds typed references to the plugin doors, generated from the app into `convex-api.d.ts` (`bonobo-plugin-sdk/convex-api`). It is one of two generated files: `http-api.d.ts` (`bonobo-plugin-sdk/http-api`) does the same for the HTTP routes. The app's own generator writes both, and the app's lint fails while either one is stale. The SDK owns the client: it opens it on init, keeps it authenticated, and closes it on `pagehide`. A plugin never builds a second one. `react` and `convex` are peer dependencies of the SDK, so every plugin declares both in its own `dependencies`. The SDK needs `convex/react` at runtime even when the plugin never imports it.
 
-**A plugin that imports `convex/react` itself must end up with the same `convex` install as the SDK.** The SDK builds the client, and the plugin's hooks read the client that the plugin's `ConvexProvider` was handed. Two different `convex` versions in one bundle means the hooks drive a client built by another copy of the library, which type-checks and then behaves in ways nothing here promises. That is why `convex` is a peer dependency since SDK 0.15.0: the package manager resolves the SDK's `convex/react` import to the plugin's own copy, so one bundle holds one `convex`. Keep the plugin's `convex` range equal to the SDK's peer range (`^1.42.2`) and check the plugin's lockfile resolves exactly one `convex` before releasing.
+**A plugin that imports `convex/react` itself must end up with the same `convex` install as the SDK.** The SDK builds the client, and the plugin's hooks read the client that the plugin's `ConvexProvider` was handed. Two different `convex` versions in one bundle means the hooks drive a client built by another copy of the library, which type-checks and then behaves in ways nothing here promises. That is why `convex` is a peer dependency since SDK 0.15.0: the package manager resolves the SDK's `convex/react` import to the plugin's own copy, so one bundle holds one `convex`. Keep the plugin's `convex` range equal to the SDK's peer range (`^1.46.0`) and check the plugin's lockfile resolves exactly one `convex` before releasing.
 
 The doors run as reactive queries and mutations on that client — not over the bridge, and not on the UI token. To authenticate it, the SDK uses the plugin-session JWT the host delivers with the session token (in `bonobo:init` and in every `bonobo:token`); it identifies the viewing member with plugin-scoped permissions and expires with the token. When Convex needs a fresh JWT, the SDK refreshes the session through the host and hands over the JWT that comes back. A host that sends no JWT is covered by exchanging the token at `POST <apiOrigin>/plugins-ui/session-jwt` (same-origin, so no CORS); there a `401` gets one host token refresh and one re-exchange before the client goes unauthenticated. A one-second wake poll notices a wall-clock gap of 30 seconds and calls `setAuth` again, so Convex pauses before an old session can reconnect while the host re-mints it. The Convex functions load the session on every call, so revoking it (uninstall, disable, upgrade, or a second load of the same frame) turns every live subscription into a refusal — a signed-valid JWT does not outlive its session. The UI token still never carries the plugin-data write scope; frame writes go through member-attributed `user_*` mutations instead.
 

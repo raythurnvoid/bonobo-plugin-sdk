@@ -3,6 +3,13 @@
 // Each `@ts-expect-error` line must fail for one reason only, so another error cannot hide a regression.
 import { usePaginatedQuery, useQuery } from "convex/react";
 import type { BonoboClient } from "bonobo-plugin-sdk/frontend";
+import type {
+	BonoboAccountDeletedEvent,
+	BonoboConfigurationValue,
+	BonoboScheduleIntervalElapsedEvent,
+	BonoboUploadSource,
+} from "bonobo-plugin-sdk";
+import type { BonoboHttpApi } from "bonobo-plugin-sdk/http-api";
 
 declare const client: BonoboClient;
 
@@ -193,4 +200,55 @@ export async function http_type_check() {
 	void client.backend;
 
 	return { runId: "", pluginStatus: 0 };
+}
+
+export function account_deleted_type_check(event: BonoboAccountDeletedEvent) {
+	const eventType: "users.account.deleted" = event.event;
+	const deletedUserId: string = event.actorUserId;
+	const source: null = event.source;
+	return { eventType, deletedUserId, source };
+}
+
+export async function scheduled_mounts_type_check(event: BonoboScheduleIntervalElapsedEvent) {
+	const source: null = event.source;
+	const state: BonoboConfigurationValue = event.chain.state;
+	const index: number = event.chain.index;
+	const intervalMinutes: number = event.schedule.intervalMinutes;
+	// @ts-expect-error a scheduled run has no triggering upload.
+	const upload: BonoboUploadSource = event.source;
+	void upload;
+
+	const followUp: BonoboHttpApi["/api/v1/plugin-runs/follow-up"]["POST"]["body"] = {
+		state: JSON.stringify({ next: index + 1 }),
+	};
+	// @ts-expect-error follow-up state is JSON text, not a parsed object.
+	const invalidFollowUp: typeof followUp = { state: { next: 1 } };
+	void invalidFollowUp;
+	void client.fetchJson("/api/v1/plugin-runs/follow-up", followUp);
+
+	const staged = await client.fetchJson("/api/v1/volumes/stage", {
+		mountId: "sources",
+		volumeKey: "repository",
+		revision: "commit-sha",
+	});
+	if (staged.status === 200 && staged.body !== null) {
+		const stagingId: string = staged.body.stagingId;
+		const written = await client.fetchJson("/api/v1/volumes/write-many", {
+			stagingId,
+			files: [{ path: "/README.md", content: "External text" }],
+		});
+		if (written.status === 200 && written.body !== null) {
+			const bytes: number = written.body.written[0]?.bytes ?? 0;
+			const errorCode: string | undefined = written.body.errors[0]?.errorCode;
+			void bytes;
+			void errorCode;
+		}
+		void client.fetchJson("/api/v1/volumes/publish", { stagingId });
+	}
+	void client.fetchJson("/api/v1/volumes/write-many", {
+		stagingId: "copy",
+		// @ts-expect-error Mount writes take text, not arbitrary JSON.
+		files: [{ path: "/data.json", content: {} }],
+	});
+	return { source, state, index, intervalMinutes };
 }

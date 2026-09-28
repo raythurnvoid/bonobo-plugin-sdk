@@ -34,6 +34,8 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   and folders. A registered service may create private reader bindings and update them
  *   while attached. Members with manage permission may take over sharing.
  *   Declaring it also requires `workspace.files.own-write`.
+ * - `workspace.volumes.write` — backend runs may write their installation's external Mounts
+ *   through `/api/v1/volumes/*`. Mounts are read-only for workspace readers and the chat agent.
  * - `plugin.data.read` — backend runs, UI pages and file views, and eligible registered service grants
  *   may read the plugin's own document store.
  * - `plugin.data.write` — backend runs and eligible registered service grants may write the plugin's own
@@ -46,6 +48,8 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  * - `plugin.backend.invoke` — the plugin's UI pages and file views may start a backend run on one
  *   of the manifest's declared `backend.endpoints` through the host invoke route. Declaring it
  *   requires a plugin backend with at least one declared endpoint.
+ * - `plugin.schedule.run` — the backend may run on its declared interval and request a follow-up.
+ *   The selected user must grant their own scopes. Runs keep that user's live access limits.
  * - `plugin.service.connect` — lets the plugin's UI token from a page or a file view participate
  *   in the service-grant exchange, but grants no API scope itself. The exchange reads only the
  *   session's installation and member, so both frame kinds work the same. The outside service must
@@ -61,6 +65,12 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   resolve names for ids it already holds, which enumerates nobody. Every member reads the roster
  *   under one rule, including a member who signed in anonymously. With `plugin.service.connect`,
  *   a registered service may exchange the current page identity and read workspace member changes.
+ * - `agent.mcp.connect` — the chat agent may call the tools of the manifest's remote `mcpServers`,
+ *   with member data from the thread as input. A server never gets a Press credential, only its
+ *   declared headers and sign-in. It and `mcpServers` require each other: neither may be declared alone.
+ * - `agent.skills.contribute` — the chat skill catalog lists the manifest's `skills`, and the agent
+ *   reads them from the plugin's read-only mount. It and `skills` require each other: neither may be
+ *   declared alone.
  */
 export type BonoboCapability =
 	| "plugin.secrets.read"
@@ -70,13 +80,17 @@ export type BonoboCapability =
 	| "workspace.files.create-read-only"
 	| "workspace.files.own-write"
 	| "workspace.files.own-access"
+	| "workspace.volumes.write"
 	| "plugin.data.read"
 	| "plugin.data.write"
 	| "plugin.data.user-write"
 	| "plugin.backend.invoke"
+	| "plugin.schedule.run"
 	| "plugin.service.connect"
 	| "ui.outbound.fetch"
-	| "workspace.members.read";
+	| "workspace.members.read"
+	| "agent.mcp.connect"
+	| "agent.skills.contribute";
 
 /**
  * Optional `navItem` of a manifest `pages[]` entry ({@link BonoboManifestPage}). Declaring it is
@@ -187,6 +201,39 @@ export interface BonoboUploadCompletedEvent {
 	 */
 	configuration: BonoboConfigurationValue;
 	source: BonoboUploadSource;
+}
+
+/**
+ * An account deletion event. actorUserId names the deleted user; there is no source file.
+ */
+export interface BonoboAccountDeletedEvent {
+	pluginRunId: string;
+	event: "users.account.deleted";
+	eventId: string;
+	organizationId: string;
+	workspaceId: string;
+	actorUserId: string;
+	configuration: BonoboConfigurationValue;
+	source: null;
+}
+
+/**
+ * A scheduled backend run. The host pins the user and consent; YAML grants no permissions.
+ */
+export interface BonoboScheduleIntervalElapsedEvent {
+	pluginRunId: string;
+	event: "schedule.interval.elapsed";
+	eventId: string;
+	organizationId: string;
+	workspaceId: string;
+	actorUserId: string;
+	configuration: BonoboConfigurationValue;
+	source: null;
+	schedule: { intervalMinutes: number; dueAt: number };
+	/**
+	 * Root input is null at index 0. Never put secrets in follow-up state.
+	 */
+	chain: { rootRunId: string; index: number; state: BonoboConfigurationValue };
 }
 
 /**

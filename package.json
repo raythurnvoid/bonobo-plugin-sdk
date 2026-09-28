@@ -1,7 +1,7 @@
 {
 	"name": "bonobo-plugin-sdk",
 	"private": false,
-	"version": "0.20.5",
+	"version": "0.21.0",
 	"license": "Apache-2.0",
 	"types": "./index.d.ts",
 	"exports": {
@@ -28,14 +28,14 @@
 		"@cloudflare/workers-types": "^4.20260410.1"
 	},
 	"peerDependencies": {
-		"convex": "^1.42.2",
-		"react": "^19.0.0"
+		"convex": "^1.46.0",
+		"react": "^19.3.0"
 	},
 	"devDependencies": {
-		"@types/react": "^19.2.14",
-		"convex": "^1.42.2",
-		"happy-dom": "20.0.11",
-		"react": "^19.2.4",
+		"@types/react": "^19.3.0",
+		"convex": "^1.46.0",
+		"happy-dom": "20.14.5",
+		"react": "^19.3.0",
 		"typescript": "^7.0.2",
 		"vitest": "4.1.10"
 	},

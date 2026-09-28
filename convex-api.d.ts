@@ -223,8 +223,8 @@ export type BonoboConvexApi = {
 		user_put_document: import("convex/server").FunctionReference<"mutation", "public", {
 			expectedRevision?: number | undefined;
 			value: Record<string, any>;
-			collection: string;
 			key: string;
+			collection: string;
 		}, {
 			_nay: {
 				name: undefined;
@@ -423,8 +423,8 @@ export type BonoboConvexApi = {
 		}, string | undefined>;
 		user_remove_document: import("convex/server").FunctionReference<"mutation", "public", {
 			expectedRevision?: number | undefined;
-			collection: string;
 			key: string;
+			collection: string;
 		}, {
 			_nay: {
 				name: undefined;
@@ -565,8 +565,8 @@ export type BonoboConvexApi = {
 		user_put_owned_document: import("convex/server").FunctionReference<"mutation", "public", {
 			expectedRevision?: number | undefined;
 			value: Record<string, any>;
-			collection: string;
 			key: string;
+			collection: string;
 		}, {
 			_nay: {
 				name: undefined;
@@ -775,8 +775,8 @@ export type BonoboConvexApi = {
 		}, string | undefined>;
 		user_remove_owned_document: import("convex/server").FunctionReference<"mutation", "public", {
 			expectedRevision?: number | undefined;
-			collection: string;
 			key: string;
+			collection: string;
 		}, {
 			_nay: {
 				name: undefined;
@@ -926,14 +926,14 @@ export type BonoboConvexApi = {
 				keyPrefix: string;
 				document: {
 					value: Record<string, any>;
-					collection: string;
 					key: string;
+					collection: string;
 				};
-				collections: string[];
 				principals: {
 					userId: import("convex/values").GenericId<"users">;
 					level: "member" | "manage";
 				}[];
+				collections: string[];
 			} | {
 				kind: "set_principal";
 				userId: import("convex/values").GenericId<"users">;
@@ -1327,12 +1327,12 @@ export type BonoboConvexApi = {
 				createdBy: import("convex/values").GenericId<"users">;
 				updatedBy: import("convex/values").GenericId<"users">;
 				updatedAt: number;
-				createdAt: number;
 				value: Record<string, any>;
-				collection: string;
 				key: string;
-				byteSize: number;
+				createdAt: number;
 				revision: number;
+				byteSize: number;
+				collection: string;
 				writeMode: "normal" | "versioned";
 				ownership: "shared" | "owned";
 			}[];
@@ -1355,18 +1355,18 @@ export type BonoboConvexApi = {
 			createdBy: import("convex/values").GenericId<"users">;
 			updatedBy: import("convex/values").GenericId<"users">;
 			updatedAt: number;
-			createdAt: number;
 			value: Record<string, any>;
-			collection: string;
 			key: string;
-			byteSize: number;
+			createdAt: number;
 			revision: number;
+			byteSize: number;
+			collection: string;
 			writeMode: "normal" | "versioned";
 			ownership: "shared" | "owned";
 		}>, string | undefined>;
 		watch_recent: import("convex/server").FunctionReference<"query", "public", {
-			scopeId?: string | undefined;
 			order?: "asc" | "desc" | undefined;
+			scopeId?: string | undefined;
 			before?: number | undefined;
 			since?: number | undefined;
 			collection: string;
@@ -1376,12 +1376,12 @@ export type BonoboConvexApi = {
 				createdBy: import("convex/values").GenericId<"users">;
 				updatedBy: import("convex/values").GenericId<"users">;
 				updatedAt: number;
-				createdAt: number;
 				value: Record<string, any>;
-				collection: string;
 				key: string;
-				byteSize: number;
+				createdAt: number;
 				revision: number;
+				byteSize: number;
+				collection: string;
 				writeMode: "normal" | "versioned";
 				ownership: "shared" | "owned";
 			}[];
@@ -1397,12 +1397,12 @@ export type BonoboConvexApi = {
 				createdBy: import("convex/values").GenericId<"users">;
 				updatedBy: import("convex/values").GenericId<"users">;
 				updatedAt: number;
-				createdAt: number;
 				value: Record<string, any>;
-				collection: string;
 				key: string;
-				byteSize: number;
+				createdAt: number;
 				revision: number;
+				byteSize: number;
+				collection: string;
 				writeMode: "normal" | "versioned";
 				ownership: "shared" | "owned";
 			}[];

@@ -34,56 +34,19 @@ export type BonoboHttpApi = {
 							createdBy: import("convex/values").GenericId<"users">;
 							updatedBy: import("convex/values").GenericId<"users">;
 							updatedAt: number;
-							createdAt: number;
 							value: {
 								[x: string]: any;
 							};
-							collection: string;
 							key: string;
-							byteSize: number;
+							createdAt: number;
 							revision: number;
+							byteSize: number;
+							collection: string;
 							writeMode: "normal" | "versioned";
 							ownership: "shared" | "owned";
 						}[];
 						cursor: string | null;
 						isDone: boolean;
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated";
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
 					};
 				};
 				400: {
@@ -94,11 +57,25 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				409: {
+				401: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
+						message: "Unauthenticated";
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
 						message: string;
 					};
 				};
@@ -108,6 +85,26 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: "Not found";
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -135,54 +132,17 @@ export type BonoboHttpApi = {
 							createdBy: import("convex/values").GenericId<"users">;
 							updatedBy: import("convex/values").GenericId<"users">;
 							updatedAt: number;
-							createdAt: number;
 							value: {
 								[x: string]: any;
 							};
-							collection: string;
 							key: string;
-							byteSize: number;
+							createdAt: number;
 							revision: number;
+							byteSize: number;
+							collection: string;
 							writeMode: "normal" | "versioned";
 							ownership: "shared" | "owned";
 						} | null;
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated";
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
 					};
 				};
 				400: {
@@ -193,11 +153,25 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				409: {
+				401: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
+						message: "Unauthenticated";
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
 						message: string;
 					};
 				};
@@ -207,6 +181,26 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: "Not found";
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -237,16 +231,12 @@ export type BonoboHttpApi = {
 						byteSize: number;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -256,10 +246,7 @@ export type BonoboHttpApi = {
 					body: {
 						message: "Unauthenticated";
 					} | {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
@@ -270,16 +257,16 @@ export type BonoboHttpApi = {
 					body: {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
-				400: {
+				404: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
+						message: "Not found";
 					};
 				};
 				409: {
@@ -290,12 +277,16 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				404: {
+				429: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Not found";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -332,16 +323,12 @@ export type BonoboHttpApi = {
 						}[];
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -351,10 +338,7 @@ export type BonoboHttpApi = {
 					body: {
 						message: "Unauthenticated";
 					} | {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
@@ -365,16 +349,16 @@ export type BonoboHttpApi = {
 					body: {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
-				400: {
+				404: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
+						message: "Not found";
 					};
 				};
 				409: {
@@ -385,12 +369,16 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				404: {
+				429: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Not found";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -417,16 +405,12 @@ export type BonoboHttpApi = {
 						deleted: boolean;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -436,10 +420,7 @@ export type BonoboHttpApi = {
 					body: {
 						message: "Unauthenticated";
 					} | {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
@@ -450,16 +431,16 @@ export type BonoboHttpApi = {
 					body: {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
-				400: {
+				404: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
+						message: "Not found";
 					};
 				};
 				409: {
@@ -470,12 +451,16 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				404: {
+				429: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Not found";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -516,41 +501,7 @@ export type BonoboHttpApi = {
 						}[];
 						cursor: string;
 						isDone: boolean;
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
+						message?: undefined;
 					};
 				};
 				400: {
@@ -559,6 +510,51 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: string;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					} | {
+						message: "File unavailable";
+						items?: undefined;
+						cursor?: undefined;
+						isDone?: undefined;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -582,43 +578,15 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						path: string;
-						nodeId: import("convex/values").GenericId<"files_nodes">;
+						target: {
+							id: import("convex/values").GenericId<"files_nodes">;
+							kind: "saved";
+						} | {
+							id: import("convex/values").GenericId<"files_pending_nodes">;
+							kind: "private";
+						};
 						content: string;
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
+						message?: undefined;
 					};
 				};
 				400: {
@@ -629,12 +597,49 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: string;
+					};
+				};
 				404: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
 						message: string;
+					} | {
+						message: "File unavailable";
+						path?: undefined;
+						target?: undefined;
+						content?: undefined;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -677,7 +682,7 @@ export type BonoboHttpApi = {
 					body: {
 						path: string;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
-						contentType: | `text/${"markdown" | "plain"}${"" | `;charset=${"utf-8"}`}`
+						contentType: | `text/${"markdown" | "plain" | "html"}${"" | `;charset=${"utf-8"}`}`
 	| "application/json"
 	| "application/yaml"
 	| "application/toml"
@@ -702,7 +707,7 @@ export type BonoboHttpApi = {
 							sequence: number;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							operation: "write" | "fence" | "readers" | "archive" | "rollback_readers" | "cancel_readers";
+							operation: "fence" | "archive" | "write" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
 							contentRevision: string | null;
 							readerRevision: number | null;
@@ -712,7 +717,7 @@ export type BonoboHttpApi = {
 					} | {
 						path: string;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
-						contentType: | `text/${"markdown" | "plain"}${"" | `;charset=${"utf-8"}`}`
+						contentType: | `text/${"markdown" | "plain" | "html"}${"" | `;charset=${"utf-8"}`}`
 	| "application/json"
 	| "application/yaml"
 	| "application/toml"
@@ -730,7 +735,7 @@ export type BonoboHttpApi = {
 					} | {
 						path: string;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
-						contentType: | `text/${"markdown" | "plain"}${"" | `;charset=${"utf-8"}`}`
+						contentType: | `text/${"markdown" | "plain" | "html"}${"" | `;charset=${"utf-8"}`}`
 	| "application/json"
 	| "application/yaml"
 	| "application/toml"
@@ -762,57 +767,6 @@ export type BonoboHttpApi = {
 						unchanged?: undefined;
 					};
 				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
-					} | {
-						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
-						path?: undefined;
-						nodeId?: undefined;
-						contentType?: undefined;
-						receipt?: undefined;
-						unchanged?: undefined;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
-					} | {
-						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
-						path?: undefined;
-						nodeId?: undefined;
-						contentType?: undefined;
-						receipt?: undefined;
-						unchanged?: undefined;
-					};
-				};
 				400: {
 					headers: {
 						[x: string]: string;
@@ -821,6 +775,50 @@ export type BonoboHttpApi = {
 						message: string;
 					} | {
 						message: "Invalid file operation ID";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: string;
+					} | {
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						path?: undefined;
+						nodeId?: undefined;
+						contentType?: undefined;
+						receipt?: undefined;
+						unchanged?: undefined;
+					};
+				};
+				402: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: string;
+					} | {
+						message: "Unauthenticated" | "Permission denied" | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
 						path?: undefined;
 						nodeId?: undefined;
 						contentType?: undefined;
@@ -843,12 +841,16 @@ export type BonoboHttpApi = {
 						unchanged?: undefined;
 					};
 				};
-				402: {
+				429: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -885,16 +887,12 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -904,10 +902,7 @@ export type BonoboHttpApi = {
 					body: {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
@@ -918,16 +913,8 @@ export type BonoboHttpApi = {
 					body: {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
 					};
 				};
 				409: {
@@ -936,6 +923,18 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -974,43 +973,6 @@ export type BonoboHttpApi = {
 						message?: undefined;
 					};
 				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					};
-				};
 				400: {
 					headers: {
 						[x: string]: string;
@@ -1037,12 +999,46 @@ export type BonoboHttpApi = {
 						truncated?: undefined;
 					};
 				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
 				404: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
 						message: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -1101,16 +1097,12 @@ export type BonoboHttpApi = {
 						writer?: undefined;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -1118,14 +1110,11 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
 						message: string;
 					} | {
 						message: "Unauthenticated";
 					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
@@ -1136,13 +1125,13 @@ export type BonoboHttpApi = {
 					body: {
 						message: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					} | {
 						message: "Permission denied";
 					};
 				};
-				400: {
+				404: {
 					headers: {
 						[x: string]: string;
 					};
@@ -1158,12 +1147,16 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				404: {
+				429: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -1207,7 +1200,7 @@ export type BonoboHttpApi = {
 							sequence: number;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							operation: "write" | "fence" | "readers" | "archive" | "rollback_readers" | "cancel_readers";
+							operation: "fence" | "archive" | "write" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
 							contentRevision: string | null;
 							readerRevision: number | null;
@@ -1215,47 +1208,6 @@ export type BonoboHttpApi = {
 					} | {
 						archivedNodes: number;
 						receipt?: undefined;
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated";
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Permission denied";
-					} | {
-						message: string;
 					};
 				};
 				400: {
@@ -1266,12 +1218,50 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated";
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: string;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Permission denied";
+					} | {
+						message: string;
+					};
+				};
 				409: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
 						message: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -1321,7 +1311,7 @@ export type BonoboHttpApi = {
 							sequence: number;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							operation: "write" | "fence" | "readers" | "archive" | "rollback_readers" | "cancel_readers";
+							operation: "fence" | "archive" | "write" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
 							contentRevision: string | null;
 							readerRevision: number | null;
@@ -1331,16 +1321,12 @@ export type BonoboHttpApi = {
 						receipt?: undefined;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -1348,12 +1334,9 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
 						message: "Unauthenticated";
 					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					} | {
 						message: string;
@@ -1364,7 +1347,7 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					} | {
 						message: "Permission denied";
@@ -1372,7 +1355,7 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				400: {
+				404: {
 					headers: {
 						[x: string]: string;
 					};
@@ -1388,12 +1371,16 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
-				404: {
+				429: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -1431,12 +1418,14 @@ export type BonoboHttpApi = {
 						restored: false;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Rate limit exceeded";
+						message: "Request body validation failed" | "Failed to parse request body as JSON";
+					} | {
+						message: "Invalid file operation ID";
 					};
 				};
 				401: {
@@ -1456,22 +1445,20 @@ export type BonoboHttpApi = {
 						message: "Permission denied" | "This item is read-only." | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
 					};
 				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Request body validation failed" | "Failed to parse request body as JSON";
-					} | {
-						message: "Invalid file operation ID";
-					};
-				};
 				409: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
 						message: "Permission denied" | "This item is read-only." | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Rate limit exceeded";
 					};
 				};
 			};
@@ -1506,16 +1493,12 @@ export type BonoboHttpApi = {
 						detached: boolean;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -1525,10 +1508,7 @@ export type BonoboHttpApi = {
 					body: {
 						message: "Unauthenticated";
 					} | {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
@@ -1539,16 +1519,8 @@ export type BonoboHttpApi = {
 					body: {
 						message: "Permission denied";
 					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
 					};
 				};
 				409: {
@@ -1557,6 +1529,18 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -1594,47 +1578,10 @@ export type BonoboHttpApi = {
 						sequence: number;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
 						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-						operation: "write" | "fence" | "readers" | "archive" | "rollback_readers" | "cancel_readers";
+						operation: "fence" | "archive" | "write" | "readers" | "rollback_readers" | "cancel_readers";
 						fingerprint: string;
 						contentRevision: string | null;
 						readerRevision: number | null;
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated";
-					} | {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Permission denied";
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
 					};
 				};
 				400: {
@@ -1645,12 +1592,787 @@ export type BonoboHttpApi = {
 						message: string;
 					};
 				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated";
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied";
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
 				409: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
 						message: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/volumes/list": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				mountId?: string | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						mounts: {
+							mountId: string;
+							name: string;
+							volumes: {
+								volumeKey: string;
+								deleting: boolean;
+								published: {
+									revision: string;
+									fileCount: number;
+									bytes: number;
+									publishedAt: number;
+								} | null;
+								staging: {
+									stagingId: import("convex/values").GenericId<"plugins_volume_generations">;
+									revision: string;
+									fileCount: number;
+									bytes: number;
+									expiresAt: number;
+								} | null;
+							}[];
+						}[];
+						usage: {
+							fileCount: number;
+							bytes: number;
+							dailyFilesLeft: number;
+							limits: {
+								fileBytes: 900000;
+								copyFiles: 5000;
+								copyBytes: 30000000;
+								installationFiles: 20000;
+								installationBytes: 200000000;
+								dailyFiles: 10000;
+								volumesPerMount: 32;
+								volumesPerInstallation: 128;
+							};
+						};
+					};
+				};
+				500: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				400: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				401: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				402: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				403: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				404: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				409: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				429: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/volumes/stage": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				mountId: string;
+				volumeKey: string;
+				revision: string;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						stagingId: import("convex/values").GenericId<"plugins_volume_generations">;
+						abandonedStagingId: import("convex/values").GenericId<"plugins_volume_generations"> | null;
+					};
+				};
+				500: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				400: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				401: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				402: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				403: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				404: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				409: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				429: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/volumes/write-many": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				stagingId: string;
+				files: {
+					path: string;
+					content: string;
+				}[];
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						written: {
+							bytes: number;
+							path: string;
+						}[];
+						errors: {
+							path: string;
+							errorCode: string;
+							message: string;
+						}[];
+					};
+				};
+				500: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				400: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				401: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				402: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				403: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				404: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				409: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				429: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/volumes/publish": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				stagingId: string;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						volumeKey: string;
+						revision: string;
+						fileCount: number;
+						bytes: number;
+						publishedAt: number;
+					};
+				};
+				500: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				400: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				401: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				402: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				403: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				404: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				409: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				429: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/volumes/delete": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				mountId: string;
+				volumeKey: string;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						deleted: true;
+					};
+				};
+				500: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				400: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				401: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				402: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				403: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				404: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				409: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					};
+				};
+				429: {
+					headers: {
+						"Cache-Control": "no-store";
+					} | {
+						"Cache-Control": string;
+					};
+					body: {
+						retryAfterMs?: number | undefined;
+						message: string;
+						errorCode: string;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugin-runs/follow-up": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				state: string;
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						ok: true;
+						message?: undefined;
+						errorCode?: undefined;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Request body validation failed" | "Failed to parse request body as JSON";
+						errorCode?: undefined;
+						ok?: undefined;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin run chain limit exceeded" | "A follow-up is already requested" | "Follow-up state must be at most 16 KiB" | "Follow-up state must be valid JSON";
+						errorCode?: undefined;
+						ok?: undefined;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin run chain limit exceeded" | "A follow-up is already requested" | "Follow-up state must be at most 16 KiB" | "Follow-up state must be valid JSON";
+						errorCode?: undefined;
+						ok?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin run chain limit exceeded" | "A follow-up is already requested" | "Follow-up state must be at most 16 KiB" | "Follow-up state must be valid JSON";
+						errorCode?: undefined;
+						ok?: undefined;
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin run chain limit exceeded" | "A follow-up is already requested" | "Follow-up state must be at most 16 KiB" | "Follow-up state must be valid JSON";
+						errorCode: "follow_up_already_requested" | "chain_limit";
+						ok?: undefined;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -1677,13 +2399,13 @@ export type BonoboHttpApi = {
 						jwt: string;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						code: "rate_limited";
-						message: "Rate limit exceeded";
+						code: "invalid_request";
+						message: string;
 					};
 				};
 				401: {
@@ -1704,15 +2426,6 @@ export type BonoboHttpApi = {
 						message: "Permission denied";
 					};
 				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						code: "invalid_request";
-						message: string;
-					};
-				};
 				409: {
 					headers: {
 						[x: string]: string;
@@ -1723,6 +2436,15 @@ export type BonoboHttpApi = {
 					} | {
 						code: "unavailable";
 						message: "Installation is unavailable";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "rate_limited";
+						message: "Rate limit exceeded";
 					};
 				};
 				410: {
@@ -1773,13 +2495,13 @@ export type BonoboHttpApi = {
 						continueCursor: string | null;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						code: "rate_limited";
-						message: "Rate limit exceeded";
+						code: "invalid_request";
+						message: string;
 					};
 				};
 				401: {
@@ -1800,15 +2522,6 @@ export type BonoboHttpApi = {
 						message: "Permission denied";
 					};
 				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						code: "invalid_request";
-						message: string;
-					};
-				};
 				409: {
 					headers: {
 						[x: string]: string;
@@ -1819,6 +2532,15 @@ export type BonoboHttpApi = {
 					} | {
 						code: "unavailable";
 						message: "Installation is unavailable";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "rate_limited";
+						message: "Rate limit exceeded";
 					};
 				};
 				410: {
@@ -1862,9 +2584,9 @@ export type BonoboHttpApi = {
 							} | {
 								kind: "member";
 								member: {
+									membershipLifetime: number;
 									active: boolean;
 									displayName: string | null;
-									membershipLifetime: number;
 									hostUserId: string;
 									hostMembershipId: string | null;
 									canRead: boolean;
@@ -1886,13 +2608,13 @@ export type BonoboHttpApi = {
 						isDone: boolean;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						code: "rate_limited";
-						message: "Rate limit exceeded";
+						code: "invalid_request";
+						message: string;
 					};
 				};
 				401: {
@@ -1913,15 +2635,6 @@ export type BonoboHttpApi = {
 						message: "Permission denied";
 					};
 				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						code: "invalid_request";
-						message: string;
-					};
-				};
 				409: {
 					headers: {
 						[x: string]: string;
@@ -1932,6 +2645,15 @@ export type BonoboHttpApi = {
 					} | {
 						code: "unavailable";
 						message: "Installation is unavailable";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "rate_limited";
+						message: "Rate limit exceeded";
 					};
 				};
 				410: {
@@ -1984,6 +2706,14 @@ export type BonoboHttpApi = {
 						message: "Failed to mint a unique grant token";
 					};
 				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
 				401: {
 					headers: {
 						[x: string]: string;
@@ -2000,14 +2730,6 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: "Permission denied";
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
 					};
 				};
 				404: {
@@ -2060,13 +2782,12 @@ export type BonoboHttpApi = {
 						message: "Failed to mint a unique grant token";
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -2088,14 +2809,6 @@ export type BonoboHttpApi = {
 						message: "Permission denied";
 					};
 				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-					};
-				};
 				404: {
 					headers: {
 						[x: string]: string;
@@ -2105,6 +2818,15 @@ export type BonoboHttpApi = {
 					} | {
 						message: "No saved grant response";
 						retryAfterMs?: undefined;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -2140,6 +2862,14 @@ export type BonoboHttpApi = {
 						message: "Failed to mint a unique grant token";
 					};
 				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
 				401: {
 					headers: {
 						[x: string]: string;
@@ -2156,14 +2886,6 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: "Permission denied";
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
 					};
 				};
 				404: {
@@ -2214,6 +2936,14 @@ export type BonoboHttpApi = {
 						message: "Failed to mint a unique grant token";
 					};
 				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+					};
+				};
 				401: {
 					headers: {
 						[x: string]: string;
@@ -2230,14 +2960,6 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: "Permission denied";
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
 					};
 				};
 				404: {
@@ -2283,12 +3005,12 @@ export type BonoboHttpApi = {
 						message?: undefined;
 					};
 				};
-				401: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthorized";
+						message: "Request body validation failed" | "Failed to parse request body as JSON";
 						installationId?: undefined;
 						phase?: undefined;
 						scopes?: undefined;
@@ -2297,12 +3019,12 @@ export type BonoboHttpApi = {
 						contentPermissions?: undefined;
 					};
 				};
-				400: {
+				401: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Request body validation failed" | "Failed to parse request body as JSON";
+						message: "Unauthorized";
 						installationId?: undefined;
 						phase?: undefined;
 						scopes?: undefined;
@@ -2380,16 +3102,12 @@ export type BonoboHttpApi = {
 						activityId: import("convex/values").GenericId<"activities">;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						message: string;
 					};
 				};
 				401: {
@@ -2397,13 +3115,10 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					} | {
 						message: string;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
 					};
 				};
 				403: {
@@ -2411,17 +3126,9 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
+					} | {
 						message: string;
 					};
 				};
@@ -2431,6 +3138,18 @@ export type BonoboHttpApi = {
 					};
 					body: {
 						message: string;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
@@ -2460,16 +3179,20 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
-					} | {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
+						message: "Request body is too large" | "Request body validation failed" | "Failed to parse request body as JSON";
 						retryAfterMs?: undefined;
+						runId?: undefined;
+						code?: undefined;
+					} | {
+						message: "Permission denied" | "Not found" | "Endpoint not found" | "This endpoint requires a serialization key" | "Serialization keys must be visible ASCII (no spaces) up to 128 characters";
+						retryAfterMs?: undefined;
+						runId?: undefined;
+						code?: undefined;
 					};
 				};
 				401: {
@@ -2477,10 +3200,7 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Plugin API call limit exceeded";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated" | "Permission denied";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
 					};
 				};
@@ -2489,26 +3209,21 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Unauthenticated" | "Permission denied";
-						retryAfterMs?: undefined;
-					} | {
 						message: "Permission denied" | "Not found" | "Endpoint not found" | "This endpoint requires a serialization key" | "Serialization keys must be visible ASCII (no spaces) up to 128 characters";
 						retryAfterMs?: undefined;
 						runId?: undefined;
 						code?: undefined;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
 					};
 				};
-				400: {
+				404: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
 						message: "Permission denied" | "Not found" | "Endpoint not found" | "This endpoint requires a serialization key" | "Serialization keys must be visible ASCII (no spaces) up to 128 characters";
-						retryAfterMs?: undefined;
-						runId?: undefined;
-						code?: undefined;
-					} | {
-						message: "Request body is too large" | "Request body validation failed" | "Failed to parse request body as JSON";
 						retryAfterMs?: undefined;
 						runId?: undefined;
 						code?: undefined;
@@ -2525,15 +3240,16 @@ export type BonoboHttpApi = {
 						code?: undefined;
 					};
 				};
-				404: {
+				429: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Permission denied" | "Not found" | "Endpoint not found" | "This endpoint requires a serialization key" | "Serialization keys must be visible ASCII (no spaces) up to 128 characters";
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
-						runId?: undefined;
-						code?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 				413: {
@@ -2606,13 +3322,19 @@ export type BonoboHttpApi = {
 						_nay?: undefined | undefined;
 					};
 				};
-				429: {
+				400: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						message: "Rate limit exceeded";
-						retryAfterMs: number;
+						_nay: {
+							name: undefined;
+							message: "Request body must carry a token";
+							cause: never;
+							data: never;
+							stack?: string | undefined;
+						};
+						_yay?: undefined | undefined;
 					};
 				};
 				401: {
@@ -2645,19 +3367,13 @@ export type BonoboHttpApi = {
 						_yay?: undefined | undefined;
 					};
 				};
-				400: {
+				429: {
 					headers: {
 						[x: string]: string;
 					};
 					body: {
-						_nay: {
-							name: undefined;
-							message: "Request body must carry a token";
-							cause: never;
-							data: never;
-							stack?: string | undefined;
-						};
-						_yay?: undefined | undefined;
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
 					};
 				};
 			};
