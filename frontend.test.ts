@@ -60,7 +60,8 @@ function set_bridge_fragment(parentOrigin = HOST_ORIGIN, nonce = NONCE) {
 /**
  * Simulates one host → page postMessage.
  */
-function post_from_host(data: unknown, origin: string = HOST_ORIGIN, source: MessageEventSource = window): void {
+function post_from_host(args: { data: unknown; origin?: string; source?: MessageEventSource }): void {
+	const { data, origin = HOST_ORIGIN, source = window } = args;
 	window.dispatchEvent(new MessageEvent("message", { data, origin, source }));
 }
 
@@ -115,22 +116,25 @@ function refresh_requests(postSpy: ReturnType<typeof spy_on_post_message>) {
 	return postSpy.mock.calls.filter((call) => (call[0] as { type?: string }).type === "bonobo:token-refresh-request");
 }
 
-function answer_refresh(
-	postSpy: ReturnType<typeof spy_on_post_message>,
-	token: string,
-	overrides?: Record<string, unknown>,
-) {
+function answer_refresh(args: {
+	postSpy: ReturnType<typeof spy_on_post_message>;
+	token: string;
+	overrides?: Record<string, unknown>;
+}) {
+	const { postSpy, token, overrides } = args;
 	const request = refresh_requests(postSpy).at(-1)?.[0] as { requestId: string } | undefined;
 	if (!request) {
 		throw new Error("refresh request not posted");
 	}
 	post_from_host({
-		type: "bonobo:token",
-		nonce: NONCE,
-		requestId: request.requestId,
-		token,
-		tokenExpiresAt: Date.now() + 600_000,
-		...overrides,
+		data: {
+			type: "bonobo:token",
+			nonce: NONCE,
+			requestId: request.requestId,
+			token,
+			tokenExpiresAt: Date.now() + 600_000,
+			...overrides,
+		},
 	});
 	return request.requestId;
 }
@@ -138,7 +142,7 @@ function answer_refresh(
 async function connect_client() {
 	spy_on_post_message();
 	const clientPromise = bonobo_connect();
-	post_from_host(make_init());
+	post_from_host({ data: make_init() });
 	return await clientPromise;
 }
 
@@ -191,12 +195,12 @@ describe("bonobo_connect", () => {
 		const clientPromise = bonobo_connect();
 		expect(postSpy).toHaveBeenCalledWith({ type: "bonobo:ready", nonce: NONCE }, HOST_ORIGIN);
 
-		post_from_host(make_init({ token: "plu_wrong_source" }), HOST_ORIGIN, {} as Window);
-		post_from_host(make_init({ token: "plu_wrong_origin" }), "https://wrong-host.test");
-		post_from_host(make_init({ nonce: crypto.randomUUID(), token: "plu_bad_nonce" }));
-		post_from_host(make_init({ tokenExpiresAt: Number.NaN, token: "plu_bad_shape" }));
-		post_from_host(make_init({ convexUrl: undefined, token: "plu_no_convex_url" }));
-		post_from_host(make_init());
+		post_from_host({ data: make_init({ token: "plu_wrong_source" }), origin: HOST_ORIGIN, source: {} as Window });
+		post_from_host({ data: make_init({ token: "plu_wrong_origin" }), origin: "https://wrong-host.test" });
+		post_from_host({ data: make_init({ nonce: crypto.randomUUID(), token: "plu_bad_nonce" }) });
+		post_from_host({ data: make_init({ tokenExpiresAt: Number.NaN, token: "plu_bad_shape" }) });
+		post_from_host({ data: make_init({ convexUrl: undefined, token: "plu_no_convex_url" }) });
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 
 		expect(client.apiOrigin).toBe("https://api.test");
@@ -345,13 +349,15 @@ describe("bonobo_connect", () => {
 		spy_on_post_message();
 		const clientPromise = bonobo_connect();
 
-		post_from_host(make_init({ context: make_file_view_context({ kind: undefined }), token: "plu_no_kind" }));
-		post_from_host(make_init({ context: make_file_view_context({ kind: "backend" }), token: "plu_bad_kind" }));
-		post_from_host(make_init({ context: make_file_view_context({ file: undefined }), token: "plu_no_file" }));
-		post_from_host(
-			make_init({ context: make_file_view_context({ file: { fileNodeId: "node_1" } }), token: "plu_bad_file" }),
-		);
-		post_from_host(make_init({ context: make_file_view_context() }));
+		post_from_host({ data: make_init({ context: make_file_view_context({ kind: undefined }), token: "plu_no_kind" }) });
+		post_from_host({
+			data: make_init({ context: make_file_view_context({ kind: "backend" }), token: "plu_bad_kind" }),
+		});
+		post_from_host({ data: make_init({ context: make_file_view_context({ file: undefined }), token: "plu_no_file" }) });
+		post_from_host({
+			data: make_init({ context: make_file_view_context({ file: { fileNodeId: "node_1" } }), token: "plu_bad_file" }),
+		});
+		post_from_host({ data: make_init({ context: make_file_view_context() }) });
 		const client = await clientPromise;
 
 		expect(client.context).toEqual(make_file_view_context());
@@ -375,11 +381,13 @@ describe("bonobo_connect", () => {
 		spy_on_post_message();
 		const clientPromise = bonobo_connect();
 
-		post_from_host(make_init({ context: { ...make_init().context, userId: undefined }, token: "plu_no_user" }));
-		post_from_host(
-			make_init({ context: make_file_view_context({ userId: undefined }), token: "plu_no_user_file_view" }),
-		);
-		post_from_host(make_init());
+		post_from_host({
+			data: make_init({ context: { ...make_init().context, userId: undefined }, token: "plu_no_user" }),
+		});
+		post_from_host({
+			data: make_init({ context: make_file_view_context({ userId: undefined }), token: "plu_no_user_file_view" }),
+		});
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 
 		expect(client.context.userId).toBe("user_1");
@@ -396,14 +404,14 @@ describe("bonobo_connect", () => {
 			postSpy.mock.calls.filter((call) => (call[0] as { type?: string }).type === "bonobo:ready").length,
 		).toBeGreaterThan(20);
 
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		await expect(clientPromise).resolves.toMatchObject({ apiOrigin: "https://api.test" });
 	});
 
 	test("shares one token refresh across simultaneous 401 responses", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 
 		const fetchMock = vi
@@ -423,7 +431,7 @@ describe("bonobo_connect", () => {
 		const first = client.fetchJson("/api/v1/files/list", { limit: 100 });
 		const second = client.fetchJson("/api/v1/files/list", { limit: 100 });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 
 		await expect(Promise.all([first, second])).resolves.toEqual([
 			{ status: 200, body: { ok: true } },
@@ -437,7 +445,7 @@ describe("bonobo_connect", () => {
 	test("a delayed 401 retries the token another request already refreshed", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 
 		let resolveDelayed401: ((response: Response) => void) | null = null;
@@ -464,7 +472,7 @@ describe("bonobo_connect", () => {
 		const first = client.fetchJson("/api/v1/files/list", { limit: 100 });
 		const second = client.fetchJson("/api/v1/files/read", { path: "/notes.md" });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 		await expect(first).resolves.toEqual({ status: 200, body: { bearer: "Bearer plu_2" } });
 
 		resolveDelayed401?.(new Response("late expired", { status: 401 }));
@@ -475,7 +483,7 @@ describe("bonobo_connect", () => {
 	test("resolves the second 401 as a declared answer instead of starting another refresh cycle", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 		const fetchMock = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify({ message: "Unauthenticated" }), {
@@ -487,7 +495,7 @@ describe("bonobo_connect", () => {
 
 		const result = client.fetchJson("/api/v1/files/list", { limit: 100 });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 
 		// 401 is a status the route declares, so the second one is an answer, not a throw.
 		await expect(result).resolves.toEqual({ status: 401, body: { message: "Unauthenticated" } });
@@ -498,7 +506,7 @@ describe("bonobo_connect", () => {
 	test("shares refresh failure and lets a later request try again", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 
 		const first = client.refreshToken();
@@ -508,23 +516,25 @@ describe("bonobo_connect", () => {
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		const firstRequest = refresh_requests(postSpy)[0]?.[0] as { requestId: string };
 		post_from_host({
-			type: "bonobo:token-error",
-			nonce: NONCE,
-			requestId: firstRequest.requestId,
-			message: "Refresh denied",
+			data: {
+				type: "bonobo:token-error",
+				nonce: NONCE,
+				requestId: firstRequest.requestId,
+				message: "Refresh denied",
+			},
 		});
 		await Promise.all([firstRejected, secondRejected]);
 
 		const later = client.refreshToken();
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(2));
-		answer_refresh(postSpy, "plu_3");
+		answer_refresh({ postSpy: postSpy, token: "plu_3" });
 		await expect(later).resolves.toBe("plu_3");
 	});
 
 	test("ignores refresh replies with the wrong source, origin, or nonce", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 		const refresh = client.refreshToken();
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
@@ -537,9 +547,9 @@ describe("bonobo_connect", () => {
 			tokenExpiresAt: Date.now() + 600_000,
 		};
 
-		post_from_host(reply, HOST_ORIGIN, {} as Window);
-		post_from_host(reply, "https://wrong-host.test");
-		post_from_host({ ...reply, nonce: "wrong_nonce" });
+		post_from_host({ data: reply, origin: HOST_ORIGIN, source: {} as Window });
+		post_from_host({ data: reply, origin: "https://wrong-host.test" });
+		post_from_host({ data: { ...reply, nonce: "wrong_nonce" } });
 		let settled = false;
 		void refresh.finally(() => {
 			settled = true;
@@ -547,7 +557,7 @@ describe("bonobo_connect", () => {
 		await Promise.resolve();
 		expect(settled).toBe(false);
 
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 		await expect(refresh).resolves.toBe("plu_2");
 	});
 
@@ -555,7 +565,7 @@ describe("bonobo_connect", () => {
 		vi.useFakeTimers();
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 
 		const firstRefresh = client.refreshToken();
@@ -565,7 +575,7 @@ describe("bonobo_connect", () => {
 
 		const secondRefresh = client.refreshToken();
 		expect(refresh_requests(postSpy)).toHaveLength(2);
-		answer_refresh(postSpy, "plu_3");
+		answer_refresh({ postSpy: postSpy, token: "plu_3" });
 		await expect(secondRefresh).resolves.toBe("plu_3");
 	});
 
@@ -666,7 +676,7 @@ describe("bonobo_connect", () => {
 	test("passes a failed session refresh out instead of turning it into an answer", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 		const fetchMock = vi.fn(() => Promise.resolve(new Response("expired", { status: 401 })));
 		vi.stubGlobal("fetch", fetchMock);
@@ -678,10 +688,12 @@ describe("bonobo_connect", () => {
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		const request = refresh_requests(postSpy)[0]?.[0] as { requestId: string };
 		post_from_host({
-			type: "bonobo:token-error",
-			nonce: NONCE,
-			requestId: request.requestId,
-			message: "This plugin was uninstalled",
+			data: {
+				type: "bonobo:token-error",
+				nonce: NONCE,
+				requestId: request.requestId,
+				message: "This plugin was uninstalled",
+			},
 		});
 
 		await expect(result).rejects.toThrow("This plugin was uninstalled");
@@ -735,7 +747,7 @@ describe("bonobo_connect", () => {
 	test("lets an aborted request reject without a token refresh or a resend", async () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init());
+		post_from_host({ data: make_init() });
 		const client = await clientPromise;
 
 		// `fetch` is what refuses an aborted signal, so the stub does the same. What this checks is
@@ -779,12 +791,12 @@ describe("bonobo_connect", () => {
 		const clientPromise = bonobo_connect();
 		// 30 seconds left is inside the 60-second margin `getToken` uses, so the host is asked
 		// before the header is written.
-		post_from_host(make_init({ tokenExpiresAt: Date.now() + 30_000 }));
+		post_from_host({ data: make_init({ tokenExpiresAt: Date.now() + 30_000 }) });
 		const client = await clientPromise;
 
 		const authorized = client.authorize();
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 		await expect(authorized.then((headers) => headers.get("Authorization"))).resolves.toBe("Bearer plu_2");
 	});
 
@@ -920,7 +932,7 @@ describe("convex session jwt auth", () => {
 		// getToken now sees the session inside the 60-second margin and asks the host.
 		const tokenPromise = client.getToken();
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 		await expect(tokenPromise).resolves.toBe("plu_2");
 	});
 
@@ -929,13 +941,13 @@ describe("convex session jwt auth", () => {
 		spy_on_post_message();
 		const clientPromise = bonobo_connect();
 		// The init token is already inside the 60-second refresh margin.
-		post_from_host(make_init({ tokenExpiresAt: Date.now() + 30_000 }));
+		post_from_host({ data: make_init({ tokenExpiresAt: Date.now() + 30_000 }) });
 		await clientPromise;
 		const { exchangeCalls } = stub_exchange((body) => jwt_response(`jwt_for_${body.token}`, Date.now() + 1_800_000));
 
 		const jwtPromise = convex_instance().fetchToken!();
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 
 		// The host refresh extended the session, and the exchange used the fresh token.
 		await expect(jwtPromise).resolves.toBe("jwt_for_plu_2");
@@ -952,7 +964,7 @@ describe("convex session jwt auth", () => {
 
 		const jwtPromise = convex_instance().fetchToken!();
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 
 		await expect(jwtPromise).resolves.toBe("jwt_2");
 		expect(exchangeCalls).toEqual([{ token: "plu_1" }, { token: "plu_2" }]);
@@ -965,7 +977,7 @@ describe("convex session jwt auth", () => {
 
 		const jwtPromise = convex_instance().fetchToken!();
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 
 		await expect(jwtPromise).resolves.toBeNull();
 	});
@@ -1000,10 +1012,12 @@ describe("convex session jwt auth", () => {
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		const request = refresh_requests(postSpy)[0]?.[0] as { requestId: string };
 		post_from_host({
-			type: "bonobo:token-error",
-			nonce: NONCE,
-			requestId: request.requestId,
-			message: "Session revoked",
+			data: {
+				type: "bonobo:token-error",
+				nonce: NONCE,
+				requestId: request.requestId,
+				message: "Session revoked",
+			},
 		});
 
 		await expect(jwtPromise).resolves.toBeNull();
@@ -1031,7 +1045,7 @@ describe("convex session jwt delivered by the host", () => {
 	async function connect_with_jwt(overrides?: Record<string, unknown>) {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init({ jwt: "jwt_1", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS, ...overrides }));
+		post_from_host({ data: make_init({ jwt: "jwt_1", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS, ...overrides }) });
 		return { client: await clientPromise, postSpy };
 	}
 
@@ -1050,10 +1064,12 @@ describe("convex session jwt delivered by the host", () => {
 			throw new Error("refresh request not posted");
 		}
 		post_from_host({
-			type: "bonobo:token-error",
-			nonce: NONCE,
-			requestId: request.requestId,
-			message: "Session revoked",
+			data: {
+				type: "bonobo:token-error",
+				nonce: NONCE,
+				requestId: request.requestId,
+				message: "Session revoked",
+			},
 		});
 	}
 
@@ -1076,7 +1092,11 @@ describe("convex session jwt delivered by the host", () => {
 		// Convex refused jwt_1 (or its expiry timer fired): it asks for a newer token.
 		const jwtPromise = fetchToken({ forceRefreshToken: true });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2", { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS });
+		answer_refresh({
+			postSpy: postSpy,
+			token: "plu_2",
+			overrides: { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS },
+		});
 
 		await expect(jwtPromise).resolves.toBe("jwt_2");
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -1091,7 +1111,11 @@ describe("convex session jwt delivered by the host", () => {
 		// A 401 on a REST call already rotated the pair.
 		const tokenPromise = client.refreshToken();
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2", { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS });
+		answer_refresh({
+			postSpy: postSpy,
+			token: "plu_2",
+			overrides: { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS },
+		});
 		await expect(tokenPromise).resolves.toBe("plu_2");
 
 		// The Convex client schedules its next ask from the delivered JWT's `exp - iat`, as if it were
@@ -1099,7 +1123,11 @@ describe("convex session jwt delivered by the host", () => {
 		// the real session end, so a forced ask always rotates again.
 		const jwtPromise = fetchToken({ forceRefreshToken: true });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(2));
-		answer_refresh(postSpy, "plu_3", { jwt: "jwt_3", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS });
+		answer_refresh({
+			postSpy: postSpy,
+			token: "plu_3",
+			overrides: { jwt: "jwt_3", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS },
+		});
 		await expect(jwtPromise).resolves.toBe("jwt_3");
 	});
 
@@ -1136,7 +1164,11 @@ describe("convex session jwt delivered by the host", () => {
 
 		const jwtPromise = convex_instance().fetchToken!({ forceRefreshToken: false });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
-		answer_refresh(postSpy, "plu_2", { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS });
+		answer_refresh({
+			postSpy: postSpy,
+			token: "plu_2",
+			overrides: { jwt: "jwt_2", jwtExpiresAt: Date.now() + JWT_LIFETIME_MS },
+		});
 
 		await expect(jwtPromise).resolves.toBe("jwt_2");
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -1167,7 +1199,7 @@ describe("convex session jwt delivered by the host", () => {
 		const jwtPromise = convex_instance().fetchToken!({ forceRefreshToken: false });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		// An older host answers the token only.
-		answer_refresh(postSpy, "plu_2");
+		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 
 		await expect(jwtPromise).resolves.toBe("jwt_exchanged");
 		expect(exchangeCalls).toEqual([{ token: "plu_2" }]);
@@ -1196,14 +1228,14 @@ describe("client.session", () => {
 		const postSpy = spy_on_post_message();
 		const clientPromise = bonobo_connect();
 		const initExpiresAt = Date.now() + 600_000;
-		post_from_host(make_init({ tokenExpiresAt: initExpiresAt }));
+		post_from_host({ data: make_init({ tokenExpiresAt: initExpiresAt }) });
 		const client = await clientPromise;
 		expect(client.session.expiresAt()).toBe(initExpiresAt);
 
 		// A host refresh rotates the token and moves the expiry with it.
 		const refreshed = client.refreshToken();
 		const rotatedExpiresAt = initExpiresAt + 1_800_000;
-		answer_refresh(postSpy, "plu_2", { tokenExpiresAt: rotatedExpiresAt });
+		answer_refresh({ postSpy: postSpy, token: "plu_2", overrides: { tokenExpiresAt: rotatedExpiresAt } });
 		await expect(refreshed).resolves.toBe("plu_2");
 		expect(client.session.expiresAt()).toBe(rotatedExpiresAt);
 	});
@@ -1254,7 +1286,7 @@ describe("client.theme", () => {
 	test("carries the host theme from init and replaces it on every later switch", async () => {
 		spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init({ theme: HOST_THEME }));
+		post_from_host({ data: make_init({ theme: HOST_THEME }) });
 		const client = await clientPromise;
 
 		// A plugin frame is its own document and inherits none of the host's custom properties, so
@@ -1278,7 +1310,7 @@ describe("client.theme", () => {
 			mode: "light",
 			tokens: { ...HOST_THEME.tokens, "--color-base-1-01": "oklch(0.99 0 0)" },
 		};
-		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: lightTheme });
+		post_from_host({ data: { type: "bonobo:theme", nonce: NONCE, theme: lightTheme } });
 		expect(onChange).toHaveBeenNthCalledWith(1, lightTheme);
 		expect(client.theme.current()).toEqual(lightTheme);
 		// A switch repaints the document the same way, and swaps the class instead of stacking a
@@ -1288,7 +1320,7 @@ describe("client.theme", () => {
 		expect(root.classList.contains("dark")).toBe(false);
 
 		unsubscribe();
-		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: HOST_THEME });
+		post_from_host({ data: { type: "bonobo:theme", nonce: NONCE, theme: HOST_THEME } });
 		expect(onChange).toHaveBeenCalledTimes(1);
 		// The store keeps following the host after the last subscriber left, so a page that only
 		// reads current() on demand still sees the theme the member is in.
@@ -1299,7 +1331,7 @@ describe("client.theme", () => {
 	test("keeps the last good theme when the host sends something else", async () => {
 		spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init({ theme: HOST_THEME }));
+		post_from_host({ data: make_init({ theme: HOST_THEME }) });
 		const client = await clientPromise;
 		const onChange = vi.fn();
 		client.theme.subscribe(onChange);
@@ -1308,16 +1340,18 @@ describe("client.theme", () => {
 		// whole. Half a theme would paint a page with one wrong colour and no way to notice. One
 		// message per reject branch: not an object, a bad mode, tokens not an object, a token that
 		// is not a string.
-		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: "light" });
-		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: { mode: "dusk", tokens: {} } });
-		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: { mode: "light", tokens: null } });
+		post_from_host({ data: { type: "bonobo:theme", nonce: NONCE, theme: "light" } });
+		post_from_host({ data: { type: "bonobo:theme", nonce: NONCE, theme: { mode: "dusk", tokens: {} } } });
+		post_from_host({ data: { type: "bonobo:theme", nonce: NONCE, theme: { mode: "light", tokens: null } } });
 		post_from_host({
-			type: "bonobo:theme",
-			nonce: NONCE,
-			theme: { mode: "light", tokens: { "--color-fg-12": 7 } },
+			data: {
+				type: "bonobo:theme",
+				nonce: NONCE,
+				theme: { mode: "light", tokens: { "--color-fg-12": 7 } },
+			},
 		});
 		// The nonce is what proves the message came from this frame's host.
-		post_from_host({ type: "bonobo:theme", nonce: "other-nonce", theme: { mode: "light", tokens: {} } });
+		post_from_host({ data: { type: "bonobo:theme", nonce: "other-nonce", theme: { mode: "light", tokens: {} } } });
 
 		expect(onChange).not.toHaveBeenCalled();
 		expect(client.theme.current()).toEqual(HOST_THEME);
@@ -1331,12 +1365,12 @@ describe("client.theme", () => {
 	test("accepts an empty token map and then only switches the class", async () => {
 		spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init({ theme: HOST_THEME }));
+		post_from_host({ data: make_init({ theme: HOST_THEME }) });
 		const client = await clientPromise;
 
 		// An empty map is a well-formed theme, not a malformed one. The SDK writes what arrives and
 		// removes nothing, so the properties from init stay on the root.
-		post_from_host({ type: "bonobo:theme", nonce: NONCE, theme: { mode: "light", tokens: {} } });
+		post_from_host({ data: { type: "bonobo:theme", nonce: NONCE, theme: { mode: "light", tokens: {} } } });
 		expect(client.theme.current()).toEqual({ mode: "light", tokens: {} });
 		expect(document.documentElement.classList.contains("light")).toBe(true);
 		expect(document.documentElement.classList.contains("dark")).toBe(false);
@@ -1356,7 +1390,7 @@ describe("client.theme", () => {
 		// The same whole-message rule as later switches: a bad init theme is dropped, not half applied.
 		spy_on_post_message();
 		const clientPromise = bonobo_connect();
-		post_from_host(make_init({ theme: { mode: "dark", tokens: "not a map" } }));
+		post_from_host({ data: make_init({ theme: { mode: "dark", tokens: "not a map" } }) });
 		const client = await clientPromise;
 		expect(client.theme.current()).toBeNull();
 		expect(document.documentElement.getAttribute("style")).toBeNull();

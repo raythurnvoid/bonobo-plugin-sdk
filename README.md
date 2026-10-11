@@ -12,7 +12,7 @@ Backend run (`fetch(request, env, ctx)`):
 - `outbound.fetch` — native `fetch` to third-party HTTPS origins listed in the manifest's `outboundOrigins`.
 - `plugin.data.read` — read the plugin's own document store.
 - `plugin.data.write` — create, change, and delete documents in that store. Declaring it also requires `plugin.data.read`.
-- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`, so a backend run can call `/api/v1/files/list` and `/api/v1/files/read` with the acting member's visibility: a file or folder that member cannot see answers `404` or an empty page. `files/download-urls` stays bound to the triggering upload.
+- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`, so a backend run can call `/api/v1/files/list` and `/api/v1/files/read` with the acting member's visibility: a file or folder that member cannot see answers `404`, and items it cannot see are left out of a listed folder. `files/download-urls` stays bound to the triggering upload.
 - `workspace.files.own-write` — an invoke run may create, update, and archive files and folders marked for this plugin. Only exact string `plugin-name` metadata matching the installed plugin name selects an existing node. Members may edit or remove the label through ordinary metadata controls. Actor permissions and current locks still apply. Declaring it also requires `workspace.files.write`.
 - `workspace.files.own-access` — an invoke run may set locks and readers on matching files and folders through `/api/v1/files/plugin-access/set`. Members with manage permission may change them. Declaring it also requires `workspace.files.own-write`.
 - `workspace.volumes.write` — write the installation's external Mounts through the five `/api/v1/volumes/*` routes. Workspace readers and the chat agent get read-only access.
@@ -193,6 +193,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 // response against.
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
+
+0.21.1 adds `errorCode: "invalid_cursor"` to the `files/list` `400` for a cursor that no longer opens, and documents the rate limits. It also carries the generated types and docs changed since 0.21.0.
 
 0.20.6 documents that `archive-destination` also archives a destination folder the sealed grant created through `/api/v1/files/write` alone. The runtime and types are unchanged.
 
@@ -377,12 +379,21 @@ A manifest may declare remote MCP servers for the chat agent, and skills for its
 ```
 
 - `id` — matches `/^[a-z][a-z0-9-]{0,19}$/`, unique per manifest. `my` and ids starting with `my-` are reserved. At most 4 servers.
-- `url` — normalized `https:` URL of a Streamable HTTP server, at most 2048 characters. No credentials, fragment, IP address, or localhost. A query is allowed, but not a query name that looks like a key (it contains `key`, `token`, `secret`, `password`, `passwd`, `auth`, `credential`, or `signature` after removing `-` and `_`). Send keys in a header.
-- `headers` — at most 8. Each value is the value of one secret declared in `secrets` (which needs `plugin.secrets.read`). Press sets `Cookie`, `Host`, `Content-Type`, `Accept`, and every `Mcp-*` header itself, so they are refused.
-- `auth` — `{ "kind": "none" }` with no headers, `{ "kind": "secret_headers" }` with at least one header, or `{ "kind": "oauth", "issuer", "resource", "scopes" }`. With `oauth`, `issuer` and `resource` are `https:` URLs without a query or fragment, `resource` is null or the server URL or one of its parent paths, and `Authorization` is refused as a header because Press sends the member's token there.
+- `url` — normalized `https:` URL of a Streamable HTTP server on port 443, at most 2048 characters. No other port, no credentials, fragment, IP address, or localhost. A query is allowed, but not a query name that looks like a key (it contains `key`, `token`, `secret`, `password`, `passwd`, `auth`, `credential`, or `signature` after removing `-` and `_`). Send keys in a header.
+- `headers` — at most 8. Each value is the value of one secret declared in `secrets` (which needs `plugin.secrets.read`), so the plugin's backend runs can read the same secret. Press sets `Cookie`, `Host`, `Content-Type`, `Accept`, and every `Mcp-*` header itself, so they are refused.
+- `auth` — `{ "kind": "none" }` with no headers, `{ "kind": "secret_headers" }` with at least one header, or `{ "kind": "oauth", "issuer", "resource", "scopes" }`. With `oauth`, `issuer` and `resource` are `https:` URLs on port 443 without a query or fragment, `resource` is null or the server URL or one of its parent paths, and `Authorization` is refused as a header because Press sends the member's token there.
 - `tools` — at most 200 tool names the agent may call, or null for every tool the server lists.
 - A skill `path` must be exactly `dist/skills/<name>/SKILL.md` and a `files[]` entry with contentType `"text/markdown"`. The file is at most 64 KiB and starts with YAML frontmatter between two `---` lines, with `name` equal to the skill name and a nonempty `description`. Publishing refuses a skill that fails these checks. At most 32 skills.
 - The chat catalog lists each skill at `/.plugins/<pluginName>/dist/skills/<name>/SKILL.md`, and the agent reads it from there with Bash. That read-only mount holds only the text files the review read, so a file next to `SKILL.md` is there only when it is a reviewed text file. Binary files in the skill folder are not.
+
+Runtime rules for MCP servers:
+
+- Only Agent-mode chat replies call them. Ask mode and job wakeups load no MCP tools. A member needs the workspace permission "Use MCP servers".
+- One turn lists at most 20 servers and offers at most 100 MCP tools, and each server gets its first 40 tools within an equal share of the byte budget below. The tool names, descriptions, and input schemas of one turn must fit in 128 KiB, so keep input schemas small. A tool list gets 5 seconds. A tool call gets 60 seconds and at most 1 MiB of answer, and the model sees at most 64 KiB of it. Each member may make 120 MCP tool calls a minute per plugin installation.
+- Press never retries `tools/call`, because the tool may already have done its work. A tool list may retry a 429 or a 5xx.
+- The protocol is Streamable HTTP, version `2026-07-28` or the 2025 versions (`2025-11-25`, `2025-06-18`, `2025-03-26`).
+- An `oauth` server must publish protected resource metadata (RFC 9728) that names the `issuer`. The sign-in server must offer PKCE with `S256`, accept Press as a client (a client metadata document with no secret, or dynamic registration), and send `iss` in its callback (RFC 9207). A sign-in server without `iss` works only when the Press deployment lists it in `MCP_TRUSTED_ISSUERS`.
+- In a custom organization, the owner allows the plugin and its MCP servers together. A new version that changes a server's URL, `auth`, or header names needs the owner again.
 
 ## Frontend pages
 
@@ -609,11 +620,13 @@ Omitting it or passing `false` keeps the normal safe media preview headers. Stor
 filename encoding, file permissions, and URL expiry checks stay the same. Use a normal `<a download>`
 for a download, without `target="_blank"`; plugin frames allow downloads but block popups. Check
 `expiresAt` before following a saved link and request a fresh URL when it has expired.
-Each of the first 20 requested files consumes one call from the route's principal rate-limit
-bucket. One inaccessible file appears in `errors` without discarding the other successful URLs.
+Each requested file consumes one token from its own download bucket (120/min, burst 20, per
+token); the request itself also charges the route's principal bucket once. One inaccessible file appears in `errors` without discarding the other successful URLs.
 Duplicate file IDs are rejected with `400` before they consume route capacity or start file work.
 
-Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): with `contentTypePrefixes`, one request uses one bounded query. `scanLimit` sets its source-doc budget; the server defaults and caps it at 10,000 docs. The query does not set a byte-read cap. A page may come back short or even empty while `isDone` is still `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. Scan with `limit: 100`, `scanLimit: 10000`, and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor.
+Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): `contentTypePrefixes` takes up to 8 whole families like `image/` or exact types like `image/png`, and needs `recursive: true` and no `extension`. Any other value, like `image` or `image/png;charset=utf-8`, answers `400`; `image/p` means the exact type `image/p`, not a prefix. The server reads these types from indexes, so a page is full unless the access check drops files you may not read. A page can still come back short while `isDone` is `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. `scanLimit` is ignored. List with `limit: 100` and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor. `path` must be a folder: a missing, archived, or hidden folder answers `404` `{ "message": "Folder not found: <path>" }` on any page, and a file answers `400`. The `cursor` is sealed and opaque. Send it back unchanged with the same body; an edited cursor, one from another request, or one from before a host update answers `400` `{ "message": "This list cursor changed. Start a new page.", "errorCode": "invalid_cursor" }`. Any Move or Rename in the workspace also ends open cursors, so this is a normal answer. Check `"errorCode" in body && body.errorCode === "invalid_cursor"`, not the message, start again with `cursor: null`, and skip the ids you already showed.
+
+Rate limits: each token gets 120 requests per minute per route, with a burst of 20. A `429` body has `retryAfterMs`: wait that long plus a small random delay, then send the same body and cursor again. A `429` can come a little before the limit, and two parallel calls on one token can collide; that `429` says `retryAfterMs: 1000`. Keep about 4 calls in flight per route. `Plugin API call limit exceeded` (no `retryAfterMs`) does not clear inside the same run, so stop.
 
 ### Using your own fetch
 
@@ -713,10 +726,10 @@ if (client.context.kind === "page") {
 	document.title = client.context.pageTitle;
 }
 
-// files:list — a bounded contentTypePrefixes scan can return a short or even empty page, so
-// that does not mean the listing is done. Scan wide (limit 100, scanLimit 10000, kind "file"),
-// cap how many source pages one user action advances, and keep the cursor so the next action resumes; anything
-// fetched beyond what is shown stays buffered for that next action.
+// files:list — the access check can make a page short, so a short page does not mean the
+// listing is done. List wide (limit 100, kind "file"), cap how many pages one user action
+// advances, and keep the cursor so the next action resumes; anything fetched beyond what is
+// shown stays buffered for that next action.
 let cursor = null;
 let isDone = false;
 const images = [];
@@ -728,7 +741,6 @@ for (let pages = 0; images.length < 48 && !isDone && pages < 30; pages += 1) {
 			recursive: true,
 			kind: "file",
 			limit: 100,
-			scanLimit: 10_000,
 			contentTypePrefixes: ["image/"],
 			cursor,
 		});

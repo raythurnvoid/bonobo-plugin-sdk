@@ -1328,8 +1328,8 @@ export type BonoboConvexApi = {
 				updatedBy: import("convex/values").GenericId<"users">;
 				updatedAt: number;
 				value: Record<string, any>;
-				key: string;
 				createdAt: number;
+				key: string;
 				revision: number;
 				byteSize: number;
 				collection: string;
@@ -1356,8 +1356,8 @@ export type BonoboConvexApi = {
 			updatedBy: import("convex/values").GenericId<"users">;
 			updatedAt: number;
 			value: Record<string, any>;
-			key: string;
 			createdAt: number;
+			key: string;
 			revision: number;
 			byteSize: number;
 			collection: string;
@@ -1365,9 +1365,9 @@ export type BonoboConvexApi = {
 			ownership: "shared" | "owned";
 		}>, string | undefined>;
 		watch_recent: import("convex/server").FunctionReference<"query", "public", {
+			before?: number | undefined;
 			order?: "asc" | "desc" | undefined;
 			scopeId?: string | undefined;
-			before?: number | undefined;
 			since?: number | undefined;
 			collection: string;
 			limit: number;
@@ -1377,8 +1377,8 @@ export type BonoboConvexApi = {
 				updatedBy: import("convex/values").GenericId<"users">;
 				updatedAt: number;
 				value: Record<string, any>;
-				key: string;
 				createdAt: number;
+				key: string;
 				revision: number;
 				byteSize: number;
 				collection: string;
@@ -1398,8 +1398,8 @@ export type BonoboConvexApi = {
 				updatedBy: import("convex/values").GenericId<"users">;
 				updatedAt: number;
 				value: Record<string, any>;
-				key: string;
 				createdAt: number;
+				key: string;
 				revision: number;
 				byteSize: number;
 				collection: string;

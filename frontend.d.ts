@@ -303,13 +303,12 @@ export interface BonoboClient {
 	 * `/api/v1/plugin-backend/invoke`, and `/plugins-ui/session-jwt`. Typing accepts the rest, and
 	 * the host still answers `403`. The README's "UI token API surface" section is the list.
 	 *
-	 * Pagination: with `contentTypePrefixes`, one `/api/v1/files/list` request uses one bounded
-	 * query. `scanLimit` sets its source-doc budget; the server defaults and caps it at 10,000 docs.
-	 * The query does not set a byte-read cap. A page may come back short or even empty while
-	 * `isDone` is still `false`.
-	 * Scan with `limit: 100`, `scanLimit: 10000`, and `kind: "file"`. Advance a bounded number
-	 * of requests per user action (say 30), keep `cursor` across actions, buffer items fetched
-	 * beyond what is shown, and retry a `429` on the same cursor — the page is not lost.
+	 * Pagination: `/api/v1/files/list` reads `contentTypePrefixes` (whole families like `image/` or
+	 * exact types like `image/png`, with `recursive: true` and no `extension`) from indexes and
+	 * ignores `scanLimit`. The access check can still make a page short while `isDone` is `false`.
+	 * List with `limit: 100` and `kind: "file"`. Advance a bounded number of requests per user action
+	 * (say 30), keep `cursor` across actions, buffer items fetched beyond what is shown, and retry a
+	 * `429` on the same cursor — the page is not lost.
 	 */
 	fetchJson<P extends BonoboHttpApiPath>(
 		path: P,
