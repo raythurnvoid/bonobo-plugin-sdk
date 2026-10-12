@@ -194,6 +194,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
 
+0.21.2 documents the four-part route budget: a burst of 20, with the first refill about two seconds after a full drain. The runtime and types are unchanged.
+
 0.21.1 adds `errorCode: "invalid_cursor"` to the `files/list` `400` for a cursor that no longer opens, and documents the rate limits. It also carries the generated types and docs changed since 0.21.0.
 
 0.20.6 documents that `archive-destination` also archives a destination folder the sealed grant created through `/api/v1/files/write` alone. The runtime and types are unchanged.
@@ -626,7 +628,7 @@ Duplicate file IDs are rejected with `400` before they consume route capacity or
 
 Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): `contentTypePrefixes` takes up to 8 whole families like `image/` or exact types like `image/png`, and needs `recursive: true` and no `extension`. Any other value, like `image` or `image/png;charset=utf-8`, answers `400`; `image/p` means the exact type `image/p`, not a prefix. The server reads these types from indexes, so a page is full unless the access check drops files you may not read. A page can still come back short while `isDone` is `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. `scanLimit` is ignored. List with `limit: 100` and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor. `path` must be a folder: a missing, archived, or hidden folder answers `404` `{ "message": "Folder not found: <path>" }` on any page, and a file answers `400`. The `cursor` is sealed and opaque. Send it back unchanged with the same body; an edited cursor, one from another request, or one from before a host update answers `400` `{ "message": "This list cursor changed. Start a new page.", "errorCode": "invalid_cursor" }`. Any Move or Rename in the workspace also ends open cursors, so this is a normal answer. Check `"errorCode" in body && body.errorCode === "invalid_cursor"`, not the message, start again with `cursor: null`, and skip the ids you already showed.
 
-Rate limits: each token gets 120 requests per minute per route, with a burst of 20. A `429` body has `retryAfterMs`: wait that long plus a small random delay, then send the same body and cursor again. A `429` can come a little before the limit, and two parallel calls on one token can collide; that `429` says `retryAfterMs: 1000`. Keep about 4 calls in flight per route. `Plugin API call limit exceeded` (no `retryAfterMs`) does not clear inside the same run, so stop.
+Rate limits: each API key gets 120 requests per minute per route, with a burst of 20. Plugin UI sessions for the same user and installation in one workspace share one budget per route. The budget uses four parts of five tokens. A capacity refusal happens only when every part has less than one token. After a full drain, the first four tokens refill in about two seconds; all 20 refill in 10 seconds. A `429` body has `retryAfterMs`: wait that long plus a small random delay, then send the same body and cursor again. Parallel calls can still use up the server's write retries and get an early `429` with `retryAfterMs: 1000`. Keep about 4 calls in flight per route. `Plugin API call limit exceeded` (no `retryAfterMs`) does not clear inside the same run, so stop.
 
 ### Using your own fetch
 
