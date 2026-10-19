@@ -12,7 +12,7 @@ Backend run (`fetch(request, env, ctx)`):
 - `outbound.fetch` — native `fetch` to third-party HTTPS origins listed in the manifest's `outboundOrigins`.
 - `plugin.data.read` — read the plugin's own document store.
 - `plugin.data.write` — create, change, and delete documents in that store. Declaring it also requires `plugin.data.read`.
-- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`, so a backend run can call `/api/v1/files/list` and `/api/v1/files/read` with the acting member's visibility: a file or folder that member cannot see answers `404`, and items it cannot see are left out of a listed folder. `files/download-urls` stays bound to the triggering upload.
+- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`, so a backend run can call `/api/v1/files/list` and `/api/v1/files/read` with the acting member's access: a file or folder that member cannot open answers `403`, and a missing one answers `404`. A folder list shows the items that member cannot open with `locked: true`; a `recursive` list shows a locked item once and lists nothing under a locked folder. `files/download-urls` stays bound to the triggering upload.
 - `workspace.files.own-write` — an invoke run may create, update, and archive files and folders marked for this plugin. Only exact string `plugin-name` metadata matching the installed plugin name selects an existing node. Members may edit or remove the label through ordinary metadata controls. Actor permissions and current locks still apply. Declaring it also requires `workspace.files.write`.
 - `workspace.files.own-access` — an invoke run may set locks and readers on matching files and folders through `/api/v1/files/plugin-access/set`. Members with manage permission may change them. Declaring it also requires `workspace.files.own-write`.
 - `workspace.volumes.write` — write the installation's external Mounts through the five `/api/v1/volumes/*` routes. Workspace readers and the chat agent get read-only access.
@@ -42,6 +42,7 @@ Chat agent (see [MCP servers and skills](#mcp-servers-and-skills)):
 
 - `agent.mcp.connect` — the chat agent may call the tools of the manifest's remote `mcpServers`, with member data from the thread as input. A server never gets a Press credential, only its declared headers and sign-in. The capability and `mcpServers` require each other.
 - `agent.skills.contribute` — the chat skill catalog lists the manifest's `skills`, and the agent reads them from the plugin's read-only mount. Nothing is written into the workspace. The capability and `skills` require each other.
+- `agent.page-tools` — the chat agent may call the tools a page declares in `agent.tools` while a member has that page open in the app. The page code runs each call (see [Page agent tools](#page-agent-tools)). The capability and at least one page with `agent.tools` require each other.
 
 ### Grant lifecycle and service upload routes
 
@@ -194,6 +195,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
 
+0.22.0 adds page agent tools: the manifest page field `agent.tools`, the `agent.page-tools` capability, the `mail` nav icon, and `client.agent.registerTool` in the frontend client.
+
 0.21.2 documents the four-part route budget: a burst of 20, with the first refill about two seconds after a full drain. The runtime and types are unchanged.
 
 0.21.1 adds `errorCode: "invalid_cursor"` to the `files/list` `400` for a cursor that no longer opens, and documents the rate limits. It also carries the generated types and docs changed since 0.21.0.
@@ -264,7 +267,7 @@ For the generic plugin-scope binding above, private-scope membership changes upd
 
 Chitchat and Council write files one way from their own databases. Files edits never change chat data or Council D1. Chitchat uses durable transcript jobs, saved folder/file IDs, writer generations, and exact write receipts through public Files APIs. A blocked transcript does not undo a saved message; its sync status is separate from the message receipt. Ordinary sync preserves unrelated manual text; a confirmed rebuild may replace it. Council replaces the full note on a later source revision. A refused pending revision can retry after access is restored while its grant remains live; a caught-up note needs another source revision.
 
-Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope, permission, or matching label, `404` hidden or mismatched resource (including a `fileNodeId` that is not the run's source), `409` overwrite, current lock, or target/parent identity conflict, `429` run call quota or rate limit, `500` curated storage failure. An event or invoke run may succeed without writing a file. The host requires a complete successful response and settled API calls.
+Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope, permission, or matching label, `404` missing or mismatched resource (including a `fileNodeId` that is not the run's source), `409` overwrite, current lock, or target/parent identity conflict, `429` run call quota or rate limit, `500` curated storage failure. An event or invoke run may succeed without writing a file. The host requires a complete successful response and settled API calls.
 
 ### Conditional service writes
 
@@ -410,7 +413,8 @@ A manifest may declare UI pages the host app embeds:
 - `id` — matches `/^[a-z0-9][a-z0-9-]{0,63}$/`, unique per manifest.
 - `title` — 1–80 characters.
 - `entry` — must be a manifest `files[]` entry with contentType `"text/html"`.
-- `navItem` (optional) — its presence contributes a main-sidebar nav item in the host app: `label` is 1–40 characters, `icon` an optional lucide kebab-case name matching `/^[a-z0-9-]{1,64}$/`. The host currently renders only `images`, `image`, `film`, and `gallery-vertical-end`; any other name publishes fine but falls back to a generic puzzle icon (the supported set can grow without a manifest change).
+- `navItem` (optional) — its presence contributes a main-sidebar nav item in the host app: `label` is 1–40 characters, `icon` an optional lucide kebab-case name matching `/^[a-z0-9-]{1,64}$/`. The host currently renders only `images`, `image`, `film`, `gallery-vertical-end`, and `mail`; any other name publishes fine but falls back to a generic puzzle icon (the supported set can grow without a manifest change).
+- `agent` (optional) — `{ tools: [...] }`. The page gets the chat agent in a right panel and gives it tools. See [Page agent tools](#page-agent-tools).
 
 ### File views
 
@@ -528,6 +532,50 @@ What the doors answer, and what the client does not do for you:
 
 The doors are the `user_*` writes, `user_manage_scope`, the `watch_*` reads, `resolve_member_display`, and `list_members`. Their argument and result types are the app's own, and the rules behind them (private scopes and their caps, owned documents, the roster capability, the 1..100 page sizes) are in each door's docblock in the app's `plugins_data` module. A user id is `GenericId<"users">` from `convex/values`. `context.userId` and every id a door returns already have that type, so they reach a door with no cast. An id you stored inside your own document value comes back as a plain string when you parse the value, so brand it there once, at the parse step, not at each call. A write's `_nay.message` union lists the exact refusal texts of the app version the SDK was generated from. In the app, `pnpm run generate:plugin-sdk-types` rewrites the file and the lint fails while it is stale. The check reads the working tree, so commit the regenerated file together with the door change; a release cut from a green lint then ships the types of the app at that commit.
 
+### Page agent tools
+
+A page can give the app's chat agent tools that run in the page. A page with `agent` opens with the chat agent in a right panel, next to the frame. Declare the tools on the page and add the `agent.page-tools` capability:
+
+```jsonc
+{
+	"id": "mail",
+	"title": "Mail",
+	"entry": "dist/frontend/index.html",
+	"agent": {
+		"tools": [
+			{
+				"name": "create_draft",
+				"description": "Write a draft and open it in the page.",
+				"inputSchema": {
+					"type": "object",
+					"properties": { "subject": { "type": "string" }, "body": { "type": "string" } },
+					"required": ["subject", "body"]
+				}
+			}
+		]
+	}
+}
+```
+
+- A page has 1–16 tools. `name` matches `/^[a-z][a-z0-9_]{0,47}$/` and is unique in the page. `description` is 1–1,000 characters with no control characters except newlines. `inputSchema` is a JSON Schema object with `type: "object"`, at most 8 KiB.
+- The agent sees each tool as `page__<name>`, only in Agent mode and only while the member chats from that page.
+
+Run the calls with `client.agent.registerTool`:
+
+```ts
+const unregister = client.agent.registerTool("create_draft", async (input) => {
+	// The model wrote `input`. Check it before use, even with the schema.
+	const draft = parse_draft_input(input);
+	await save_draft(draft);
+	return { saved: true };
+});
+```
+
+- The return value (or the resolved promise) goes back to the agent as JSON. Keep it under 32 KiB; a bigger answer becomes an error.
+- A thrown error goes back as an error with its message, cut to 2,000 characters. A call for a tool with no handler answers "This page has no tool named X".
+- The host waits 25 seconds for the page. A call only reaches the open tab that sent the chat message. Other tabs of the same page never see it.
+- The agent treats the answer as untrusted data. Do not put instructions for the agent in it.
+
 ### Theme
 
 The host's theme reaches the frame as `{ mode: "light" | "dark", tokens }`, once inside `bonobo:init` and again on every `bonobo:theme`. A plugin frame is a separate document and inherits none of the host's custom properties, so the host resolves its numbered colour scales and sends every value under its real name, `--` prefix included: `--color-base-1-01` … `--color-base-1-12`, and the same for `base-2`, `base-alt-1`, `base-alt-2`, `fg`, `accent`, `accent-alt`, `green`, and `red` (`accent` and `accent-alt` have 10 steps, the rest 12). **The SDK applies it for you**: each token is written onto `document.documentElement.style`, and the root element gets the same `light` or `dark` class the app puts on its own root. So a stylesheet needs no plugin code at all — use the app's variables and its theme class exactly as the app does, and keep a fallback for a host that sends no theme:
@@ -626,7 +674,7 @@ Each requested file consumes one token from its own download bucket (120/min, bu
 token); the request itself also charges the route's principal bucket once. One inaccessible file appears in `errors` without discarding the other successful URLs.
 Duplicate file IDs are rejected with `400` before they consume route capacity or start file work.
 
-Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): `contentTypePrefixes` takes up to 8 whole families like `image/` or exact types like `image/png`, and needs `recursive: true` and no `extension`. Any other value, like `image` or `image/png;charset=utf-8`, answers `400`; `image/p` means the exact type `image/p`, not a prefix. The server reads these types from indexes, so a page is full unless the access check drops files you may not read. A page can still come back short while `isDone` is `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. `scanLimit` is ignored. List with `limit: 100` and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor. `path` must be a folder: a missing, archived, or hidden folder answers `404` `{ "message": "Folder not found: <path>" }` on any page, and a file answers `400`. The `cursor` is sealed and opaque. Send it back unchanged with the same body; an edited cursor, one from another request, or one from before a host update answers `400` `{ "message": "This list cursor changed. Start a new page.", "errorCode": "invalid_cursor" }`. Any Move or Rename in the workspace also ends open cursors, so this is a normal answer. Check `"errorCode" in body && body.errorCode === "invalid_cursor"`, not the message, start again with `cursor: null`, and skip the ids you already showed.
+Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): `contentTypePrefixes` takes up to 8 whole families like `image/` or exact types like `image/png`, and needs `recursive: true` and no `extension`. Any other value, like `image` or `image/png;charset=utf-8`, answers `400`; `image/p` means the exact type `image/p`, not a prefix. The server reads these types from indexes, so a page is full unless the access check drops files you may not read (only with `recursive`; a plain folder list returns them with `locked: true`). A page can still come back short while `isDone` is `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. `scanLimit` is ignored. List with `limit: 100` and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor. `path` must be a folder: a missing or archived folder answers `404` `{ "message": "Folder not found: <path>" }` on any page, a folder you cannot open (or any path below it) answers `403` `{ "message": "Permission denied: <path>" }`, and a file answers `400`. The same rule holds for `files/read`: a file you cannot open is `403`, a missing one is `404`. The `cursor` is sealed and opaque. Send it back unchanged with the same body; an edited cursor, one from another request, or one from before a host update answers `400` `{ "message": "This list cursor changed. Start a new page.", "errorCode": "invalid_cursor" }`. Any Move or Rename in the workspace also ends open cursors, so this is a normal answer. Check `"errorCode" in body && body.errorCode === "invalid_cursor"`, not the message, start again with `cursor: null`, and skip the ids you already showed.
 
 Rate limits: each API key gets 120 requests per minute per route, with a burst of 20. Plugin UI sessions for the same user and installation in one workspace share one budget per route. The budget uses four parts of five tokens. A capacity refusal happens only when every part has less than one token. After a full drain, the first four tokens refill in about two seconds; all 20 refill in 10 seconds. A `429` body has `retryAfterMs`: wait that long plus a small random delay, then send the same body and cursor again. Parallel calls can still use up the server's write retries and get an early `429` with `retryAfterMs: 1000`. Keep about 4 calls in flight per route. `Plugin API call limit exceeded` (no `retryAfterMs`) does not clear inside the same run, so stop.
 

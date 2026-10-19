@@ -479,7 +479,7 @@ export type BonoboHttpApi = {
 				limit?: number | undefined;
 				scanLimit?: number | undefined;
 				recursive?: boolean | undefined;
-				kind?: "file" | "folder" | undefined;
+				kind?: "folder" | "file" | undefined;
 				extension?: string | undefined;
 				contentTypePrefixes?: string[] | undefined;
 			};
@@ -492,12 +492,13 @@ export type BonoboHttpApi = {
 						items: {
 							path: string;
 							name: string;
-							kind: "file" | "folder";
+							kind: "folder" | "file";
 							nodeId: import("convex/values").GenericId<"files_nodes">;
 							contentType: string | null;
 							updatedAt: number;
 							status: "ready" | "pending" | null;
 							size: number | null;
+							locked: boolean;
 						}[];
 						cursor: string;
 						isDone: boolean;
@@ -703,6 +704,8 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+							nodeId: import("convex/values").GenericId<"files_nodes">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
 							createdAt: number;
@@ -711,9 +714,7 @@ export type BonoboHttpApi = {
 							writerGeneration: number;
 							operationId: string;
 							sequence: number;
-							nodeId: import("convex/values").GenericId<"files_nodes">;
-							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							operation: "fence" | "archive" | "write" | "readers" | "rollback_readers" | "cancel_readers";
+							operation: "write" | "fence" | "archive" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
 							contentRevision: string | null;
 							readerRevision: number | null;
@@ -1196,6 +1197,8 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+							nodeId: import("convex/values").GenericId<"files_nodes">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
 							createdAt: number;
@@ -1204,9 +1207,7 @@ export type BonoboHttpApi = {
 							writerGeneration: number;
 							operationId: string;
 							sequence: number;
-							nodeId: import("convex/values").GenericId<"files_nodes">;
-							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							operation: "fence" | "archive" | "write" | "readers" | "rollback_readers" | "cancel_readers";
+							operation: "write" | "fence" | "archive" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
 							contentRevision: string | null;
 							readerRevision: number | null;
@@ -1307,6 +1308,8 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+							nodeId: import("convex/values").GenericId<"files_nodes">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
 							createdAt: number;
@@ -1315,9 +1318,7 @@ export type BonoboHttpApi = {
 							writerGeneration: number;
 							operationId: string;
 							sequence: number;
-							nodeId: import("convex/values").GenericId<"files_nodes">;
-							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							operation: "fence" | "archive" | "write" | "readers" | "rollback_readers" | "cancel_readers";
+							operation: "write" | "fence" | "archive" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
 							contentRevision: string | null;
 							readerRevision: number | null;
@@ -1574,6 +1575,8 @@ export type BonoboHttpApi = {
 					body: {
 						_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 						_creationTime: number;
+						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
+						nodeId: import("convex/values").GenericId<"files_nodes">;
 						organizationId: import("convex/values").GenericId<"organizations">;
 						workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
 						createdAt: number;
@@ -1582,9 +1585,7 @@ export type BonoboHttpApi = {
 						writerGeneration: number;
 						operationId: string;
 						sequence: number;
-						nodeId: import("convex/values").GenericId<"files_nodes">;
-						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-						operation: "fence" | "archive" | "write" | "readers" | "rollback_readers" | "cancel_readers";
+						operation: "write" | "fence" | "archive" | "readers" | "rollback_readers" | "cancel_readers";
 						fingerprint: string;
 						contentRevision: string | null;
 						readerRevision: number | null;

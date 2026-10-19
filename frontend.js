@@ -254,6 +254,14 @@ export async function bonobo_connect() {
 	 */
 	const themeSubscribers = new Set();
 
+	/**
+	 * The agent tool handlers this page registered, by tool name. The names come from the page's
+	 * `agent.tools` in the manifest.
+	 *
+	 * @type {Map<string, (input: unknown) => unknown>}
+	 */
+	const agentTools = new Map();
+
 	/** @type {Map<string, { resolve: (token: string) => void, reject: (error: Error) => void, timeout: ReturnType<typeof setTimeout> }>} */
 	const pending_refreshes = new Map();
 	/** @type {Promise<string> | null} */
@@ -629,6 +637,16 @@ export async function bonobo_connect() {
 							};
 						},
 					},
+					agent: {
+						registerTool(name, handler) {
+							agentTools.set(name, handler);
+							return () => {
+								if (agentTools.get(name) === handler) {
+									agentTools.delete(name);
+								}
+							};
+						},
+					},
 				});
 			} else if (
 				initialized &&
@@ -670,6 +688,40 @@ export async function bonobo_connect() {
 					pending_refreshes.delete(message.requestId);
 					clearTimeout(pending.timeout);
 					pending.reject(new Error(message.message));
+				}
+			} else if (
+				initialized &&
+				message.nonce === nonce &&
+				message.type === "bonobo:agent-tool-call" &&
+				typeof message.callId === "string" &&
+				typeof message.toolName === "string"
+			) {
+				const callId = message.callId;
+				/** @param {{ ok: true, output: unknown } | { ok: false, error: string }} answer */
+				const reply = (answer) => {
+					// An output that postMessage cannot copy (for example one holding a function) throws here.
+					// Answer with an error then, so the agent does not wait for the host's timeout.
+					try {
+						window.parent.postMessage({ type: "bonobo:agent-tool-result", nonce, callId, ...answer }, parentOrigin);
+					} catch {
+						window.parent.postMessage(
+							{ type: "bonobo:agent-tool-result", nonce, callId, ok: false, error: "The tool output could not be sent" },
+							parentOrigin,
+						);
+					}
+				};
+				const handler = agentTools.get(message.toolName);
+				if (!handler) {
+					reply({ ok: false, error: `This page has no tool named ${message.toolName}` });
+				} else {
+					// The handler may return a value or a promise. A thrown error becomes the answer, so the
+					// agent learns what went wrong instead of waiting for a timeout.
+					Promise.resolve()
+						.then(() => handler(message.input))
+						.then(
+							(output) => reply({ ok: true, output }),
+							(error) => reply({ ok: false, error: error instanceof Error ? error.message : String(error) }),
+						);
 				}
 			}
 			// Anything else (unknown types, replayed inits, stray requestIds) is silently ignored.

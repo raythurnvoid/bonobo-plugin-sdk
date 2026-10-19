@@ -71,6 +71,9 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  * - `agent.skills.contribute` — the chat skill catalog lists the manifest's `skills`, and the agent
  *   reads them from the plugin's read-only mount. It and `skills` require each other: neither may be
  *   declared alone.
+ * - `agent.page-tools` — while a member has one of the plugin's pages open, the chat agent beside it
+ *   may call the tools that page declares in `agent.tools`. The page runs each call in the member's
+ *   browser. It and page `agent` blocks require each other: neither may be declared alone.
  */
 export type BonoboCapability =
 	| "plugin.secrets.read"
@@ -90,13 +93,14 @@ export type BonoboCapability =
 	| "ui.outbound.fetch"
 	| "workspace.members.read"
 	| "agent.mcp.connect"
-	| "agent.skills.contribute";
+	| "agent.skills.contribute"
+	| "agent.page-tools";
 
 /**
  * Optional `navItem` of a manifest `pages[]` entry ({@link BonoboManifestPage}). Declaring it is
  * the explicit opt-in that adds a main-sidebar nav item in the host app. `label` is 1–40
  * characters; `icon` is an optional lucide kebab-case icon name matching `/^[a-z0-9-]{1,64}$/`.
- * The host currently renders only `"images"`, `"image"`, `"film"`, and `"gallery-vertical-end"`.
+ * The host currently renders only `"images"`, `"image"`, `"film"`, `"gallery-vertical-end"`, and `"mail"`.
  * Any other name publishes fine but falls back to a generic puzzle icon, so the supported set
  * can grow without a manifest change.
  */
@@ -116,6 +120,24 @@ export interface BonoboManifestPage {
 	title: string;
 	entry: string;
 	navItem?: BonoboManifestPageNavItem;
+	/**
+	 * Shows the chat agent beside the page and lets it call these tools while the page is open.
+	 * Requires the `agent.page-tools` capability. Register a handler for each one with
+	 * `client.agent.registerTool`.
+	 */
+	agent?: { tools: BonoboManifestPageAgentTool[] };
+}
+
+/**
+ * One agent tool of a plugin page. The agent sees it as `page__<name>`. `name` matches
+ * `/^[a-z][a-z0-9_]{0,47}$/` and is unique per page, `description` is 1–1000 characters of
+ * model-facing text, and `inputSchema` is a JSON Schema with `type: "object"`, at most 8 KiB.
+ * A page declares 1–16 tools.
+ */
+export interface BonoboManifestPageAgentTool {
+	name: string;
+	description: string;
+	inputSchema: Record<string, unknown>;
 }
 
 /**

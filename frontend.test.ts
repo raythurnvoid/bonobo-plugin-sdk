@@ -1397,3 +1397,57 @@ describe("client.theme", () => {
 		expect(document.documentElement.className).toBe("");
 	});
 });
+
+describe("client.agent", () => {
+	test("runs the registered tool for a host call and answers with its result or its error", async () => {
+		// Clients from earlier tests still listen and would answer a call with the shared nonce.
+		const AGENT_NONCE = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+		set_bridge_fragment(HOST_ORIGIN, AGENT_NONCE);
+		const postSpy = spy_on_post_message();
+		const clientPromise = bonobo_connect();
+		post_from_host({ data: make_init({ nonce: AGENT_NONCE }) });
+		const client = await clientPromise;
+		const results = () =>
+			postSpy.mock.calls
+				.map((call) => call[0] as { type?: string })
+				.filter((message) => message.type === "bonobo:agent-tool-result");
+
+		const unregister = client.agent.registerTool("create_draft", async (input) => ({ draftId: "d1", input }));
+		client.agent.registerTool("fail", () => {
+			throw new Error("No subject");
+		});
+
+		post_from_host({
+			data: { type: "bonobo:agent-tool-call", nonce: AGENT_NONCE, callId: "c1", toolName: "create_draft", input: { a: 1 } },
+		});
+		post_from_host({ data: { type: "bonobo:agent-tool-call", nonce: AGENT_NONCE, callId: "c2", toolName: "fail", input: {} } });
+		// The nonce proves the call came from this frame's host.
+		post_from_host({
+			data: { type: "bonobo:agent-tool-call", nonce: "other-nonce", callId: "c3", toolName: "fail", input: {} },
+		});
+		await vi.waitFor(() => expect(results()).toHaveLength(2));
+
+		expect(results()).toEqual([
+			{ type: "bonobo:agent-tool-result", nonce: AGENT_NONCE, callId: "c2", ok: false, error: "No subject" },
+			{
+				type: "bonobo:agent-tool-result",
+				nonce: AGENT_NONCE,
+				callId: "c1",
+				ok: true,
+				output: { draftId: "d1", input: { a: 1 } },
+			},
+		]);
+
+		unregister();
+		post_from_host({
+			data: { type: "bonobo:agent-tool-call", nonce: AGENT_NONCE, callId: "c4", toolName: "create_draft", input: {} },
+		});
+		expect(results().at(-1)).toEqual({
+			type: "bonobo:agent-tool-result",
+			nonce: AGENT_NONCE,
+			callId: "c4",
+			ok: false,
+			error: "This page has no tool named create_draft",
+		});
+	});
+});

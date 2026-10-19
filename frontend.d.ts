@@ -346,6 +346,24 @@ export interface BonoboClient {
 		subscribe(onChange: (theme: BonoboTheme) => void): () => void;
 	};
 	/**
+	 * Run the chat agent's tool calls for this page.
+	 *
+	 * A plugin page that declares `agent.tools` in its manifest shows the app's chat agent beside it.
+	 * When the agent calls one of those tools, the host sends the call to this page. The SDK runs the
+	 * handler registered under the tool's name and sends its return value back to the agent. A thrown
+	 * error, or a call with no registered handler, answers the agent with the error message.
+	 *
+	 * The return value must be JSON-serializable and at most 32 KiB as JSON. The agent reads it as
+	 * data, so return what the agent needs and nothing secret. The host stops waiting after 25 seconds.
+	 */
+	agent: {
+		/**
+		 * Handle calls to the tool `name`. `input` follows the tool's `inputSchema` from the manifest,
+		 * but the model wrote it, so check it before use. Returns the unregister function.
+		 */
+		registerTool(name: string, handler: (input: unknown) => unknown): () => void;
+	};
+	/**
 	 * The frame's own authenticated Convex client. It is a `ConvexReactClient`, so a page can hand
 	 * it to `ConvexProvider` and read the plugin doors with `useQuery`, `useQueries`, and
 	 * `usePaginatedQuery` from `convex/react`, or call `watchQuery`, `query`, and `mutation` on it
