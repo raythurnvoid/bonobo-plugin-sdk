@@ -482,6 +482,7 @@ export type BonoboHttpApi = {
 				kind?: "folder" | "file" | undefined;
 				extension?: string | undefined;
 				contentTypePrefixes?: string[] | undefined;
+				order?: "asc" | "desc" | undefined;
 			};
 			response: {
 				200: {
@@ -1758,7 +1759,7 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					};
 				};
-				402: {
+				404: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -1768,7 +1769,7 @@ export type BonoboHttpApi = {
 						errorCode: string;
 					};
 				};
-				404: {
+				402: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -1881,7 +1882,7 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					};
 				};
-				402: {
+				404: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -1891,7 +1892,7 @@ export type BonoboHttpApi = {
 						errorCode: string;
 					};
 				};
-				404: {
+				402: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -2013,7 +2014,7 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					};
 				};
-				402: {
+				404: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -2023,7 +2024,7 @@ export type BonoboHttpApi = {
 						errorCode: string;
 					};
 				};
-				404: {
+				402: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -2137,7 +2138,7 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					};
 				};
-				402: {
+				404: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -2147,7 +2148,7 @@ export type BonoboHttpApi = {
 						errorCode: string;
 					};
 				};
-				404: {
+				402: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -2258,7 +2259,7 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					};
 				};
-				402: {
+				404: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
@@ -2268,7 +2269,7 @@ export type BonoboHttpApi = {
 						errorCode: string;
 					};
 				};
-				404: {
+				402: {
 					headers: {
 						"Cache-Control": "no-store";
 					};
