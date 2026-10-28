@@ -1,6 +1,6 @@
 # Bonobo Plugin SDK
 
-SDK for Bonobo workspace plugins. The root export is types-only (a single hand-written `index.d.ts` built on `@cloudflare/workers-types`) — plugin workers are plain Cloudflare-style JS typed via JSDoc. The `bonobo-plugin-sdk/frontend` export adds a small hand-written browser ESM runtime for plugin UI pages and file views (see [Frontend pages](#frontend-pages)).
+SDK for Bonobo Senate workspace plugins. The root export is types-only (a single hand-written `index.d.ts` built on `@cloudflare/workers-types`) — plugin workers are plain Cloudflare-style JS typed via JSDoc. The `bonobo-plugin-sdk/frontend` export adds a small hand-written browser ESM runtime for plugin UI pages and file views (see [Frontend pages](#frontend-pages)).
 
 ## Capabilities
 
@@ -14,7 +14,7 @@ Backend run (`fetch(request, env, ctx)`):
 - `plugin.data.write` — create, change, and delete documents in that store. Declaring it also requires `plugin.data.read`.
 - `workspace.files.read` — the run's host token also carries `files:list` and `files:read`, so a backend run can call `/api/v1/files/list` and `/api/v1/files/read` with the acting member's access: a file or folder that member cannot open answers `403`, and a missing one answers `404`. A folder list shows the items that member cannot open with `locked: true`; a `recursive` list shows a locked item once and lists nothing under a locked folder. `files/download-urls` stays bound to the triggering upload.
 - `workspace.files.own-write` — an invoke run may create, update, and archive files and folders marked for this plugin. Only exact string `plugin-name` metadata matching the installed plugin name selects an existing node. Members may edit or remove the label through ordinary metadata controls. Actor permissions and current locks still apply. Declaring it also requires `workspace.files.write`.
-- `workspace.files.own-access` — an invoke run may set locks and readers on matching files and folders through `/api/v1/files/plugin-access/set`. Members with manage permission may change them. Declaring it also requires `workspace.files.own-write`.
+- `workspace.files.own-access` — an invoke run may set readers on matching files and folders through `/api/v1/files/plugin-access/set`. Members with Can manage may change sharing. Declaring it also requires `workspace.files.own-write`.
 - `workspace.volumes.write` — write the installation's external Mounts through the five `/api/v1/volumes/*` routes. Workspace readers and the chat agent get read-only access.
 - `plugin.schedule.run` — run at the declared interval and request a follow-up. The selected user must grant their own scopes; every operation still checks their current access.
 
@@ -35,12 +35,12 @@ The host exchange works for any plugin whose publisher registered a service secr
 - `plugin.data.read` — an eligible service grant may read the plugin's own document store.
 - `plugin.data.write` — an eligible service grant may write the plugin's document store. A frame's UI token never receives this scope, whatever the installation accepted: a UI session can belong to an anonymous identity and is the surface an XSS reaches first, so a write from there would become injected input the backend later acts on with its secrets.
 - `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant, capped by an exact destination path prefix. The interactive exchange still never mints this scope; the service gets it by sealing (below). A sealed grant may call the `/api/v1/files/service-uploads/*` routes, `/api/v1/files/write` for editable text, and `/api/v1/files/plugin-archive` for one matching file. Existing files need exact `plugin-name` metadata matching the installation, including same-plugin invoke output or member-labeled files. Live grant, capability, actor permissions, seal, and locks still apply. Registered writer requests also reach the public folder, access, inspection, generation, and undo contracts below. Removing a label does not cancel an accepted upload or change its separate target cleanup rules.
-- `workspace.files.create-read-only` — lets a sealed service upload ask for a direct read-only lock on the file it creates. It cannot lock existing member files. Declaring it also requires `workspace.files.write`.
+- `workspace.files.manage-read-only` — permits explicit Read-only set/clear, create-true, and `force: true`. It requires `workspace.files.write`. Ordinary file access, sandbox roots and exact request seals still apply. The old create-read-only capability does not grant this permission.
 - `workspace.files.own-write` and `workspace.files.own-access` — registered services use public Files APIs with a sealed grant and current service secret. Optional writer conditions bind the root, folder IDs, generation, and replay receipts. Private readers use attached bindings; a Files manager may take over sharing. Current actor/account permissions, labels, and file policies still apply. These contracts are exported in `BonoboHttpApi` and leave ordinary service-upload rules unchanged.
 
 Chat agent (see [MCP servers and skills](#mcp-servers-and-skills)):
 
-- `agent.mcp.connect` — the chat agent may call the tools of the manifest's remote `mcpServers`, with member data from the thread as input. A server never gets a Press credential, only its declared headers and sign-in. The capability and `mcpServers` require each other.
+- `agent.mcp.connect` — the chat agent may call the tools of the manifest's remote `mcpServers`, with member data from the thread as input. A server never gets a Bonobo Senate credential, only its declared headers and sign-in. The capability and `mcpServers` require each other.
 - `agent.skills.contribute` — the chat skill catalog lists the manifest's `skills`, and the agent reads them from the plugin's read-only mount. Nothing is written into the workspace. The capability and `skills` require each other.
 - `agent.page-tools` — the chat agent may call the tools a page declares in `agent.tools` while a member has that page open in the app. The page code runs each call (see [Page agent tools](#page-agent-tools)). The capability and at least one page with `agent.tools` require each other.
 
@@ -50,29 +50,29 @@ An interactive grant comes from `POST /api/v1/plugins/service-grants/exchange` (
 
 Exchange, renew, and seal-processing accept an optional persisted `requestId`. A lost response can be recovered through `/api/v1/plugins/service-grants/recover` with the original bearer, current service secret, operation, request ID, and original destination for a seal. The host returns the exact saved credential while it remains current. Encrypted response storage lasts at most 24 hours; expiry requires reconnect. An old bearer cannot start new work. Calls without a request ID keep their existing behavior.
 
-- `POST /api/v1/plugins/service-grants/seal-processing` — service secret + live interactive `psg_` bearer, body `{ destinationPathPrefix }` (a normalized absolute path of canonical lowercase folder names, not `/`). Mints a NEW processing-phase grant for the same installation and member with exactly the registered scopes (for Council: `["plugin_data:read", "plugin_data:write", "files:write"]`), bound to exactly that prefix, expiring six days from the seal. Renewal rotates a processing token but never moves that deadline. A processing grant cannot seal again, so the window cannot roll forever. Requires `plugin.service.connect` plus the workspace capability gating each registered scope, and refuses if any is missing rather than minting a narrower grant. `workspace.files.create-read-only` is deliberately not required here; `create-target` still checks it on every call.
+- `POST /api/v1/plugins/service-grants/seal-processing` — service secret + live interactive `psg_` bearer, body `{ destinationPathPrefix }` (a normalized absolute path of canonical lowercase folder names, not `/`). Mints a NEW processing-phase grant for the same installation and member with exactly the registered scopes (for Council: `["plugin_data:read", "plugin_data:write", "files:write"]`), bound to exactly that prefix, expiring six days from the seal. Renewal rotates a processing token but never moves that deadline. A processing grant cannot seal again, so the window cannot roll forever. Requires `plugin.service.connect` plus the workspace capability gating each registered scope, and refuses if any is missing rather than minting a narrower grant. `workspace.files.manage-read-only` is not required to seal; each new flag change or forced write checks it.
 
 The sealed grant then drives the upload pipeline — plain `Authorization: Bearer <psg_...>` calls (no service secret header), all POST, all requiring the `files:write` scope and the `processing` phase:
 
 | Route                                               | Body                                                                                 | Response                                                                                                                                                         |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/v1/files/service-uploads/create-target`       | `{ idempotencyKey, targetKey, path, contentType, size, readOnly, nonCollaborative }` | pending: `{ state: "pending", path, nodeId, uploadUrl, headers, uploadUrlExpiresAt }`; replay after confirm: `{ state: "committed", path, nodeId, actualBytes }` |
+| `/api/v1/files/service-uploads/create-target`       | `{ idempotencyKey, targetKey, path, contentType, size, readOnly, nonCollaborative, force? }` | pending: `{ state: "pending", path, nodeId, uploadUrl, headers, uploadUrlExpiresAt }`; replay after confirm: `{ state: "committed", path, nodeId, actualBytes }` |
 | `/api/v1/files/service-uploads/remint`              | `{ idempotencyKey, targetKey }`                                                      | same union as create-target: a fresh asset and URL for a pending target, or `committed`                                                                         |
 | `/api/v1/files/service-uploads/finalize`            | `{ idempotencyKey, targetKey }`                                                      | `{ state: "pending" \| "committed" \| "released", path, nodeId, actualBytes \| null }`                                                                           |
-| `/api/v1/files/service-uploads/delete`              | `{ idempotencyKey, targetKey }`                                                      | `{ state: "deleted", paths }`                                                                                                                                    |
-| `/api/v1/files/service-uploads/archive-destination` | `{}`                                                                                 | `{ archivedNodes }`                                                                                                                                              |
+| `/api/v1/files/service-uploads/delete`              | `{ idempotencyKey, targetKey, force? }`                                                | `{ state: "deleted", paths }`                                                                                                                                    |
+| `/api/v1/files/service-uploads/archive-destination` | `{ requestId, previousRequestId?, force? }`                                            | `{ requestId, archivedNodes, complete, refused: [{ path, message }] }`                                                                                             |
 
 Contract highlights:
 
 - `idempotencyKey` names one upload run (the meeting); `targetKey` names one file in it. For create, remint, and finalize, the pair is the file's identity, so a later run may reuse a target key for a different file. Replays with the same body answer the same target; the same key pair with a different body answers `409`. Each pending create replay or remint creates a fresh upload asset and retires the earlier attempt. The newest accepted attempt wins even if an older PUT finishes later. The target is also bound to the exact destination seal that created it. Active replay, remint, and finalize recheck the file's current path and restricted-file access. When a service call observes that a member moved the file outside that seal, it closes every old service door with a sticky moved-out fence; moving it back does not return service control. An archived file answers `404` while archived, but an ordinary member restore makes it active again. A restricted file answers `403`. A later read-only lock does not cancel an upload the host already accepted.
-- Both mode booleans are required. `readOnly: true` needs `workspace.files.create-read-only` and the acting member's live permission to manage the destination ACL. The host locks only the new placeholder and records the exact target that created that lock. `nonCollaborative: true` is valid only for an editable-text filename. The empty placeholder stays a normal blob; after valid UTF-8 text conversion succeeds, the file stores chunks and one content snapshot with no Yjs asset or Yjs docs. A failed conversion stays a blob and leaves `nonCollaborative` unset.
+- Both mode booleans are required. `readOnly: true` needs `workspace.files.manage-read-only` and current Can edit. The host sets the new placeholder's flag. Optional top-level `force` defaults to false. Omitted and false force have the same request fingerprint; true changes it. `nonCollaborative: true` is valid only for an editable-text filename. The empty placeholder stays a normal blob; after valid UTF-8 text conversion succeeds, the file stores chunks and one content snapshot with no Yjs asset or Yjs docs. A failed conversion stays a blob and leaves `nonCollaborative` unset.
 - `create-target` is closed to workspaces on the `Free` plan. Storing files costs real money, so only a workspace whose payer is on `Pay As You Go` or `Pro` may store service files; anything else answers `403`. In an owner-billed organization the owner's plan decides, not the acting member's. A target the host already accepted keeps working even if the plan drops afterwards — remint, finalize, and delete still answer. Only a new target is refused.
 - There is nothing to book first, and `create-target` charges nothing. The `size` you send is only a guess. The workspace's 10 GiB `plugin_service_storage_bytes` quota keeps the largest confirmed stored size across the target's attempts. A later larger attempt adds only the difference; duplicates add nothing. `actualBytes` reports the winning object's exact size. `create-target` answers `403` only when that quota is already full. The counter only grows: deleting a stored file gives nothing back. An attempt that stored no bytes costs nothing. At most 16 targets may be created in one upload run. One destination may also hold at most 16 reachable pending or committed targets under the same target key across runs; moved-out and released history does not count. An exact replay of an existing target still works at either cap.
 - Every `path` must live strictly under the sealed `destinationPathPrefix`; anything else answers `403 Path is outside this grant's destination`. Paths use the app's canonical form: lowercase folder segments, real upload file names.
 - Upload with a signed PUT directly to the fresh asset's `uploadUrl`. Send exactly the returned `headers`, including signed `If-None-Match: *`, then poll `finalize` until `state` is `"committed"`. A PUT 412 means the attempt already has an object; keep polling rather than discarding it or assuming the stored body equals this retry's body. Reusing one URL is the same attempt. Use `remint` for a fresh attempt when the 15-minute URL expires or a retry needs new bytes. Finalize never mints an attempt. Its `"released"` state closes this target; use a new target and a free path for another upload. The R2 event confirms the object, records its actual size, and charges it. The declared size never reaches the bill.
 - A target you create is a real, empty file in the workspace from that moment. If your service crashes before the PUT, the empty file stays there and a member can delete it. After eight days the host retires the unfinished attempt and deletes its object; it keeps the placeholder and target. A later remint or exact pending create replay gets a fresh asset and key immediately, even while old cleanup runs. Send the whole file again — there is no resume. A retired attempt cannot publish if its event arrives late. A read-only placeholder defers retirement because a later lock does not cancel an accepted upload. Cancel the target with `delete` when you know the upload will not happen.
-- `delete` handles every reachable pending or committed file that an installation stored under a `targetKey`, across upload runs in the sealed destination. Its `idempotencyKey` does not narrow that cleanup to one run. Moved-out member-owned files are outside this door. The host checks each active file's current path and restricted-file write access before it changes anything. A restricted file answers `403`; a member lock answers `409`. The only lock exception is the direct read-only lock created by the exact live target, while the capability is still accepted and the actor still manages that file's ACL. An unlock and later member relock removes this exception. It works days later under a NEW grant sealed to the same destination. A committed upload is a normal member file, so the host archives it and keeps its content, metadata, and stored object. An unfinished upload is only an empty placeholder, so the host cancels it and deletes its upload object. Both answer `"deleted"` in the same request. Council uses `archive-destination` instead because deleting a meeting must keep its whole folder as one restorable set. Released history is not enumerated, so a replay may return one representative path instead of every old path. A late event for a retired or cancelled attempt still updates the target's largest observed size and queues that exact object for deletion. It cannot change the winning object's size or revive the target. A moved-out accepted upload still finishes and charges its real size, but its old service doors stay closed. Nothing is ever refunded. An unknown key answers `404`. Replays keep answering.
-- `archive-destination` archives the whole destination folder, with every file still inside it, for the delete-meeting workflow. The body is empty on purpose: the seal names the folder, so the grant can never reach another one. Archiving is what "delete a file" means to a member — the folder leaves the file tree in one archive operation, so a member can restore the exact set. This call closes the current logical epoch under the same installation and seal. Restoring a folder from that closed epoch does not reopen its service calls, consume the live target cap, or let an archive replay take it again. A later create opens the next epoch. If a member restores an older service-created folder before its epoch was closed, the archive route can handle it after proving its stable id. A member-only folder that merely reused the path is never touched. The folder does not need an upload target: when the sealed grant created it through `/api/v1/files/write` alone (for example a meeting note written before any recording), the host recognizes its own `plugin-name` label on the folder and archives it the same way. Stored bytes stay charged; this quota never gives bytes back. A destination that was never created, or one a member already archived, answers `{ archivedNodes: 0 }`, so a replayed delete is happy. Before any archive write, the host validates the whole subtree. Restricted content answers `403`. Member, inherited, stale-target, or unrelated locks answer `409`. The host may pass this installation's exact live-target lock or a same-plugin named lock allowed by `workspace.files.create-read-only` consent. Outer locks still refuse the call.
+- `delete` handles every reachable pending or committed file that an installation stored under a `targetKey`, across upload runs in the sealed destination. Its `idempotencyKey` does not narrow that cleanup to one run. Moved-out member-owned files are outside this door. Before changing anything, the host checks each active file's current path, Can edit access and direct parent list. Missing access answers `403`; Read-only answers `409`. Explicit `force: true` with current `workspace.files.manage-read-only` consent bypasses only Read-only. Creating the target grants no automatic exception, and force never clears its flag. It works days later under a NEW grant sealed to the same destination. A committed upload is a normal member file, so the host archives it and keeps its content, metadata, and stored object. An unfinished upload is only an empty placeholder, so the host cancels it and deletes its upload object. Both answer `"deleted"` in the same request. Council uses `archive-destination` to handle the whole meeting folder, with partial results as described below. Released history is not enumerated, so a replay may return one representative path instead of every old path. A late event for a retired or cancelled attempt still updates the target's largest observed size and queues that exact object for deletion. It cannot change the winning object's size or revive the target. A moved-out accepted upload still finishes and charges its real size, but its old service doors stay closed. Nothing is ever refunded. An unknown key answers `404`. Replays keep answering.
+- `archive-destination` takes `{requestId, previousRequestId?, force?}`. The seal fixes the destination. It returns `{requestId, archivedNodes, complete, refused:[{path,message}]}`. Ordinary calls preflight all visited nodes; a refusal changes nothing. With explicit force and current Manage Read-only consent, allowed branches archive in child-first order and blocked branches keep their parents active. Flags stay intact. The existing 256-node bound still applies. Only complete results close the destination epoch. A partial result must not trigger a caller's final tombstone or grant cleanup. Persist the request ID before sending. Replaying it returns the saved result without more writes. A later attempt names a new ID and the previous partial request ID; it keeps the original folder ID, exact sealed path and epoch. A recreated destination conflicts. Unreadable refusals have a null path and generic message. A restored closed destination never reopens service authority.
 - The seal validates the destination as-is and refuses non-canonical folder names with `400`. Normalize your configured folder before sealing (for example `/Meetings` → `/meetings`); the host never normalizes it for you.
 - Error statuses: `400` invalid input, `401` dead grant/installation/membership, `403` missing scope, wrong phase, destination fence, a plan that does not include service file storage, or a full quota, `404` unknown target (including another workspace's), `409` idempotency conflicts or replay-after-release. R2 PUT can return `412` when that attempt already has an object; this is separate from host API errors.
 
@@ -154,15 +154,15 @@ stays saved, while terminal runs lose tokens and temporary state.
 
 ## Identity and members for external services
 
-A plugin can use the current Press login without another account. Register its server through the
+A plugin can use the current Bonobo Senate login without another account. Register its server through the
 publisher's Service controls and declare `plugin.service.connect` plus `workspace.members.read`.
 An identity-only service may register with `scopes: []`; this grants no Files or data access.
 
 The server calls `POST /api/v1/plugins/identity/exchange` with the frame's `plu_` bearer and
 `X-Bonobo-Service-Authorization: Bearer <pse_...>`. Body: `{exchangeId,requestedExpiresAt}`.
-Press returns `{jwt}` after checking the exact live installation, registration, version, account,
-session, member, and consent. The JWT uses ES256, issuer `<Press HTTP origin>/plugins-services`,
-audience `bonobo-plugin:<plugin name>`, and the normal Press JWKS. Verify its signature, audience,
+Bonobo Senate returns `{jwt}` after checking the exact live installation, registration, version, account,
+session, member, and consent. The JWT uses ES256, issuer `<Bonobo Senate HTTP origin>/plugins-services`,
+audience `bonobo-plugin:<plugin name>`, and the normal Bonobo Senate JWKS. Verify its signature, audience,
 issuer, exchange ID, subject, and expiry. The deadline is at most 30 seconds after validation.
 
 The signed facts include the user and membership IDs, membership lifetime, tenant and installation,
@@ -175,7 +175,82 @@ takes `{installationId,afterRevision,limit}` (1–100) and returns ordered event
 revisions. These server calls need the service-secret header. They require the connection created by
 a valid page exchange. A secret alone cannot attach a service to a workspace. Version or account
 changes require a fresh exchange; a removed installation exposes only its terminal access result.
-Unrelated access events contain no private profile data. A stale cursor requires a new snapshot.
+A stale cursor requires a new snapshot.
+
+The feed holds only this installation's events, so revisions have gaps. `continueRevision` means:
+every event of this installation up to that revision is in the page. Store it and pass it as the next
+`afterRevision`. Bonobo Senate deletes access changes after 30 days. When a cursor is older than that and
+this installation had a deleted change, the route answers `410 { code: "snapshot_required" }`. Then
+read `members/list` again from the start.
+
+### Access change notices
+
+Declare `{ "type": "workspace.access.changed" }` in `events` and the URL of your server in
+`serviceEventsUrl`. Each needs the other, and the event needs `plugin.service.connect` and
+`workspace.members.read`. The URL follows the MCP server URL rules (https, port 443, a host name,
+no credentials, no fragment) and has no query, not even an empty `?`. Bonobo Senate stores it
+normalized. Members see the URL's origin on the install screen.
+
+When this installation's access changes, Bonobo Senate sends a signed POST to the URL. The notice
+holds no member data. Pull the changes with `access/changes`, then answer:
+
+- `2xx`: you applied everything up to `data.revision`, or there is nothing to do.
+- `503`, with an optional `Retry-After` in seconds: you are not caught up yet. The next try waits as
+  you ask, from 5 seconds to 1 hour.
+- anything else, a redirect, or no answer in 15 seconds: a failure. Tries wait 5 s, 30 s, 2 min,
+  10 min, 30 min, then every hour. After 3 days of failures the notices pause. The next lease or
+  pull of that installation starts them again.
+
+A disabled installation gets the notice of the disable, then only notices of its own installation changes (the enable, the uninstall) until it is enabled again.
+
+While the installation is disabled, and after an upgrade or a service account change until the next page lease exchange, `members/list` answers `409 unavailable`. Answer such a notice with 200: the next lease binds the new version and syncs to the head.
+
+Many changes can share one notice. `data.revision` is the newest one. The body is:
+
+```json
+{"type":"workspace.access.changed","timestamp":"2026-10-25T10:00:00.000Z","data":{"installationId":"...","revision":42}}
+```
+
+Notices follow [Standard Webhooks](https://www.standardwebhooks.com/) v1. The headers are
+`webhook-id` (`<installationId>:<revision>`), `webhook-timestamp` (Unix seconds), and
+`webhook-signature` (`v1,<base64 HMAC-SHA256>`). Get the key with
+`POST /api/v1/plugins/service-events/key`, the `X-Bonobo-Service-Authorization` header, and the body
+`{ pluginName }`. It answers `{ key: "whsec_...", createdAt }`. Store the key on your server. Rotating the
+service secret replaces the key, so on a signature mismatch fetch the key once more (at most once a
+minute) before you answer `401`.
+
+```ts
+async function verify_notice(request: Request, key: string) {
+	const id = request.headers.get("webhook-id") ?? "";
+	const timestamp = request.headers.get("webhook-timestamp") ?? "";
+	const body = await request.text();
+	// Refuse old notices, so a copied request cannot be sent again later.
+	if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return null;
+
+	const hmacKey = await crypto.subtle.importKey(
+		"raw",
+		Uint8Array.from(atob(key.slice("whsec_".length)), (char) => char.charCodeAt(0)),
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["verify"],
+	);
+	const message = new TextEncoder().encode(`${id}.${timestamp}.${body}`);
+	// The header may list several signatures. Any one of them is enough.
+	for (const entry of (request.headers.get("webhook-signature") ?? "").split(" ")) {
+		const [version, signature] = entry.split(",");
+		if (version !== "v1" || !signature) continue;
+		// Skip an entry that is not valid base64. Another entry may still match.
+		let bytes: Uint8Array;
+		try {
+			bytes = Uint8Array.from(atob(signature), (char) => char.charCodeAt(0));
+		} catch {
+			continue;
+		}
+		if (await crypto.subtle.verify("HMAC", hmacKey, bytes, message)) return JSON.parse(body);
+	}
+	return null;
+}
+```
 
 ## Public host APIs
 
@@ -232,7 +307,7 @@ type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 | `POST /api/v1/plugin-data/read`    | `{ collection, key }`                                                                                                                                                                                                                                             | `{ document }` — one stored document, or `null` when the key does not exist                                                                        |
 | `POST /api/v1/plugin-data/list`    | `{ collection, keyPrefix?, keyStartExclusive?, keyEndInclusive?, cursor?, limit? }`                                                                                                                                                                                | `{ documents, cursor, isDone }`                                                                                                                    |
 
-`access: { readOnly: true }` on a `files/write` create locks the new file with a lock the plugin itself can pass and release. It needs `workspace.files.own-access` (or the service seal's create-read-only consent) and is refused for API-key callers. Members with manage permission can unlock it. Unlocking and locking again makes it a member lock, which blocks the plugin. A no-op lock request keeps the existing lock origin. An outer member lock also blocks a nested plugin lock. Existing-file access options do not relock or rebind that file.
+`access: { readOnly: true }` on a `files/write` create sets the new file's local flag. It needs `workspace.files.manage-read-only`, or `files:read-only` for an API key, and ordinary Can edit. Optional top-level `force: true` passes Read-only for that request only and needs the same current grant. It never grants file access, broadens a seal or clears the flag. Anyone with Can edit may change the flag through the proper setter. Folder flags block direct list changes, not every descendant's content. Copy and Restore preserve source flags without an extra grant solely for preservation.
 
 New plugin files and folders get ordinary metadata `source: plugin` and `plugin-name: <name>`. `source` is descriptive; only the exact string `plugin-name` selects a node. Members may change either key, including opting a member-created item into a plugin. In-place writes and retries keep the existing map. No update restores removed labels. Extra import metadata such as `original-name` stays on the leaf, and reused ancestors keep their maps.
 
@@ -279,11 +354,11 @@ bearer and the `X-Bonobo-Service-Authorization` header.
 
 | Route | Writer request | Result |
 | --- | --- | --- |
-| `/api/v1/files/plugin-folders/ensure` | `{path,writer:{resourceKey,rootNodeId},access?}` | Normal folder result plus `writer` with saved writer/root/folder IDs, generation, reader revision, and detach state |
+| `/api/v1/files/plugin-folders/ensure` | `{path,force?,writer:{resourceKey,rootNodeId},access?}` | Normal folder result plus `writer` with saved writer/root/folder IDs, generation, reader revision, and detach state |
 | `/api/v1/files/plugin-writers/inspect` | `{writerId,path,maxBytes}` | Current editable text and type, exact target/parent IDs, opaque revision, generation, and reader state |
-| `/api/v1/files/write` | Normal text fields and `expectedParentNodeId`, plus `writer:{writerId,operationId,writerGeneration,sequence,expectedNodeId,expectedContentRevision,expectedReaderRevision,contentHash}` | Normal write result plus `receipt` |
-| `/api/v1/files/plugin-archive` | `{path,writer:{writerId,operationId,writerGeneration,sequence,nodeId,expectedContentRevision?}}` | Archived count plus `receipt`; exactly one saved file |
-| `/api/v1/files/plugin-access/set` | `{path,access:{readers},writer:{writerId,operationId,writerGeneration,expectedReaderRevision}}` | Node ID plus `receipt` |
+| `/api/v1/files/write` | Normal text fields, optional `force`, and `expectedParentNodeId`, plus `writer:{writerId,operationId,writerGeneration,sequence,expectedNodeId,expectedContentRevision,expectedReaderRevision,contentHash}` | Normal write result plus `receipt` |
+| `/api/v1/files/plugin-archive` | `{path,force?,writer:{writerId,operationId,writerGeneration,sequence,nodeId,expectedContentRevision?}}` | Archived count plus `receipt`; exactly one saved file |
+| `/api/v1/files/plugin-access/set` | `{path,access:{readers} or {readOnly},writer:{writerId,operationId,writerGeneration,expectedReaderRevision}}` | Node ID plus exact `receipt`; do not mix reader and flag changes in one writer operation |
 | `/api/v1/files/plugin-access/undo` | `{writerId,operationId,writerGeneration}` and exactly one `receiptId` or `originalReaderOperationId` | Exact undo acknowledgement |
 | `/api/v1/files/plugin-writers/advance` | `{writerId,operationId,writerGeneration,nextGeneration}` | Generation receipt |
 
@@ -387,8 +462,8 @@ A manifest may declare remote MCP servers for the chat agent, and skills for its
 
 - `id` — matches `/^[a-z][a-z0-9-]{0,19}$/`, unique per manifest. `my` and ids starting with `my-` are reserved. At most 4 servers.
 - `url` — normalized `https:` URL of a Streamable HTTP server on port 443, at most 2048 characters. No other port, no credentials, fragment, IP address, or localhost. A query is allowed, but not a query name that looks like a key (it contains `key`, `token`, `secret`, `password`, `passwd`, `auth`, `credential`, or `signature` after removing `-` and `_`). Send keys in a header.
-- `headers` — at most 8. Each value is the value of one secret declared in `secrets` (which needs `plugin.secrets.read`), so the plugin's backend runs can read the same secret. Press sets `Cookie`, `Host`, `Content-Type`, `Accept`, and every `Mcp-*` header itself, so they are refused.
-- `auth` — `{ "kind": "none" }` with no headers, `{ "kind": "secret_headers" }` with at least one header, or `{ "kind": "oauth", "issuer", "resource", "scopes" }`. With `oauth`, `issuer` and `resource` are `https:` URLs on port 443 without a query or fragment, `resource` is null or the server URL or one of its parent paths, and `Authorization` is refused as a header because Press sends the member's token there.
+- `headers` — at most 8. Each value is the value of one secret declared in `secrets` (which needs `plugin.secrets.read`), so the plugin's backend runs can read the same secret. Bonobo Senate sets `Cookie`, `Host`, `Content-Type`, `Accept`, and every `Mcp-*` header itself, so they are refused.
+- `auth` — `{ "kind": "none" }` with no headers, `{ "kind": "secret_headers" }` with at least one header, or `{ "kind": "oauth", "issuer", "resource", "scopes" }`. With `oauth`, `issuer` and `resource` are `https:` URLs on port 443 without a query or fragment, `resource` is null or the server URL or one of its parent paths, and `Authorization` is refused as a header because Bonobo Senate sends the member's token there.
 - `tools` — at most 200 tool names the agent may call, or null for every tool the server lists.
 - A skill `path` must be exactly `dist/skills/<name>/SKILL.md` and a `files[]` entry with contentType `"text/markdown"`. The file is at most 64 KiB and starts with YAML frontmatter between two `---` lines, with `name` equal to the skill name and a nonempty `description`. Publishing refuses a skill that fails these checks. At most 32 skills.
 - The chat catalog lists each skill at `/.plugins/<pluginName>/dist/skills/<name>/SKILL.md`, and the agent reads it from there with Bash. That read-only mount holds only the text files the review read, so a file next to `SKILL.md` is there only when it is a reviewed text file. Binary files in the skill folder are not.
@@ -397,9 +472,9 @@ Runtime rules for MCP servers:
 
 - Only Agent-mode chat replies call them. Ask mode and job wakeups load no MCP tools. A member needs the workspace permission "Use MCP servers".
 - One turn lists at most 20 servers and offers at most 100 MCP tools, and each server gets its first 40 tools within an equal share of the byte budget below. The tool names, descriptions, and input schemas of one turn must fit in 128 KiB, so keep input schemas small. A tool list gets 5 seconds. A tool call gets 60 seconds and at most 1 MiB of answer, and the model sees at most 64 KiB of it. Each member may make 120 MCP tool calls a minute per plugin installation.
-- Press never retries `tools/call`, because the tool may already have done its work. A tool list may retry a 429 or a 5xx.
+- Bonobo Senate never retries `tools/call`, because the tool may already have done its work. A tool list may retry a 429 or a 5xx.
 - The protocol is Streamable HTTP, version `2026-07-28` or the 2025 versions (`2025-11-25`, `2025-06-18`, `2025-03-26`).
-- An `oauth` server must publish protected resource metadata (RFC 9728) that names the `issuer`. The sign-in server must offer PKCE with `S256`, accept Press as a client (a client metadata document with no secret, or dynamic registration), and send `iss` in its callback (RFC 9207). A sign-in server without `iss` works only when the Press deployment lists it in `MCP_TRUSTED_ISSUERS`.
+- An `oauth` server must publish protected resource metadata (RFC 9728) that names the `issuer`. The sign-in server must offer PKCE with `S256`, accept Bonobo Senate as a client (a client metadata document with no secret, or dynamic registration), and send `iss` in its callback (RFC 9207). A sign-in server without `iss` works only when the Bonobo Senate deployment lists it in `MCP_TRUSTED_ISSUERS`.
 - In a custom organization, the owner allows the plugin and its MCP servers together. A new version that changes a server's URL, `auth`, or header names needs the owner again.
 
 ## Frontend pages
@@ -462,9 +537,9 @@ Do not give your frame document a `no-referrer` referrer policy (for example `<m
 
 ### Using the Convex client
 
-`client.convex` is the frame's own authenticated Convex client, a `ConvexReactClient` from `convex/react`, and `client.api` holds typed references to the plugin doors, generated from the app into `convex-api.d.ts` (`bonobo-plugin-sdk/convex-api`). It is one of two generated files: `http-api.d.ts` (`bonobo-plugin-sdk/http-api`) does the same for the HTTP routes. The app's own generator writes both, and the app's lint fails while either one is stale. The SDK owns the client: it opens it on init, keeps it authenticated, and closes it on `pagehide`. A plugin never builds a second one. `react` and `convex` are peer dependencies of the SDK, so every plugin declares both in its own `dependencies`. The SDK needs `convex/react` at runtime even when the plugin never imports it.
+`client.convex` is the frame's own authenticated Convex client, a `ConvexReactClient` from `convex/react`, and `client.api` holds typed references to the plugin doors, generated from the app into `convex-api.d.ts` (`bonobo-plugin-sdk/convex-api`). It is one of two generated files: `http-api.d.ts` (`bonobo-plugin-sdk/http-api`) does the same for the HTTP routes. The app's own generator writes both, and the app's lint fails while either one is stale. The SDK owns the client: it opens it on init, keeps it authenticated, and closes it on `pagehide`. A plugin never builds a second one. `react` and `convex` are peer dependencies of the SDK, so every plugin with a UI frame declares both in its own `dependencies`. A backend-only plugin that never imports the frame client may leave them out. The SDK needs `convex/react` at runtime even when the plugin never imports it.
 
-**A plugin that imports `convex/react` itself must end up with the same `convex` install as the SDK.** The SDK builds the client, and the plugin's hooks read the client that the plugin's `ConvexProvider` was handed. Two different `convex` versions in one bundle means the hooks drive a client built by another copy of the library, which type-checks and then behaves in ways nothing here promises. That is why `convex` is a peer dependency since SDK 0.15.0: the package manager resolves the SDK's `convex/react` import to the plugin's own copy, so one bundle holds one `convex`. Keep the plugin's `convex` range equal to the SDK's peer range (`^1.46.0`) and check the plugin's lockfile resolves exactly one `convex` before releasing.
+**A plugin that imports `convex/react` itself must end up with the same `convex` install as the SDK.** The SDK builds the client, and the plugin's hooks read the client that the plugin's `ConvexProvider` was handed. Two different `convex` versions in one bundle means the hooks drive a client built by another copy of the library, which type-checks and then behaves in ways nothing here promises. That is why `convex` is a peer dependency since SDK 0.15.0: the package manager resolves the SDK's `convex/react` import to the plugin's own copy, so one bundle holds one `convex`. Keep the plugin's `convex` range inside the SDK's peer range (`^1.46.0`) and check the plugin's lockfile resolves exactly one `convex` before releasing.
 
 The doors run as reactive queries and mutations on that client — not over the bridge, and not on the UI token. To authenticate it, the SDK uses the plugin-session JWT the host delivers with the session token (in `bonobo:init` and in every `bonobo:token`); it identifies the viewing member with plugin-scoped permissions and expires with the token. When Convex needs a fresh JWT, the SDK refreshes the session through the host and hands over the JWT that comes back. A host that sends no JWT is covered by exchanging the token at `POST <apiOrigin>/plugins-ui/session-jwt` (same-origin, so no CORS); there a `401` gets one host token refresh and one re-exchange before the client goes unauthenticated. A one-second wake poll notices a wall-clock gap of 30 seconds and calls `setAuth` again, so Convex pauses before an old session can reconnect while the host re-mints it. The Convex functions load the session on every call, so revoking it (uninstall, disable, upgrade, or a second load of the same frame) turns every live subscription into a refusal — a signed-valid JWT does not outlive its session. The UI token still never carries the plugin-data write scope; frame writes go through member-attributed `user_*` mutations instead.
 

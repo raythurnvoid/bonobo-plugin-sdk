@@ -23,14 +23,14 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   sealed grant may use the `/api/v1/files/service-uploads/*` routes, write editable text inside its
  *   seal through `/api/v1/files/write`, and archive a file marked for this plugin through
  *   `/api/v1/files/plugin-archive`.
- * - `workspace.files.create-read-only` — lets the service request a direct read-only lock when it
- *   creates a file. Declaring it also requires `workspace.files.write`.
+ * - `workspace.files.manage-read-only` — lets a file caller set or clear Read-only and explicitly
+ *   pass it with `force: true`. Current file access still applies. Declaring it also requires `workspace.files.write`.
  * - `workspace.files.own-write` — backend invoke runs may create, update, and archive files and
  *   folders marked by matching `plugin-name` metadata. Members may change or remove this label.
  *   Registered services may use public Files APIs with a sealed grant and current service secret.
  *   An optional writer binds the output folder, write conditions, and replay receipts.
  *   Declaring it also requires `workspace.files.write`.
- * - `workspace.files.own-access` — backend invoke runs may set locks and readers on matching files
+ * - `workspace.files.own-access` — backend invoke runs may set readers on matching files
  *   and folders. A registered service may create private reader bindings and update them
  *   while attached. Members with manage permission may take over sharing.
  *   Declaring it also requires `workspace.files.own-write`.
@@ -66,8 +66,8 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   under one rule, including a member who signed in anonymously. With `plugin.service.connect`,
  *   a registered service may exchange the current page identity and read workspace member changes.
  * - `agent.mcp.connect` — the chat agent may call the tools of the manifest's remote `mcpServers`,
- *   with member data from the thread as input. A server never gets a Press credential, only its
- *   declared headers and sign-in. It and `mcpServers` require each other: neither may be declared alone.
+ *   with member data from the thread as input. A server never gets a Bonobo Senate credential,
+ *   only its declared headers and sign-in. It and `mcpServers` require each other: neither may be declared alone.
  * - `agent.skills.contribute` — the chat skill catalog lists the manifest's `skills`, and the agent
  *   reads them from the plugin's read-only mount. It and `skills` require each other: neither may be
  *   declared alone.
@@ -80,7 +80,7 @@ export type BonoboCapability =
 	| "outbound.fetch"
 	| "workspace.files.read"
 	| "workspace.files.write"
-	| "workspace.files.create-read-only"
+	| "workspace.files.manage-read-only"
 	| "workspace.files.own-write"
 	| "workspace.files.own-access"
 	| "workspace.volumes.write"

@@ -663,6 +663,7 @@ export type BonoboHttpApi = {
 			body: {
 				path: string;
 				content: string;
+				force?: boolean | undefined;
 				expectedParentNodeId?: string | undefined;
 				overwrite?: "replace" | "fail" | undefined;
 				skipIfUnchanged?: boolean | undefined;
@@ -715,9 +716,9 @@ export type BonoboHttpApi = {
 							writerGeneration: number;
 							operationId: string;
 							sequence: number;
-							operation: "write" | "fence" | "archive" | "readers" | "rollback_readers" | "cancel_readers";
-							fingerprint: string;
 							contentRevision: string | null;
+							operation: "write" | "fence" | "archive" | "read_only" | "readers" | "rollback_readers" | "cancel_readers";
+							fingerprint: string;
 							readerRevision: number | null;
 						};
 						message?: undefined;
@@ -873,6 +874,7 @@ export type BonoboHttpApi = {
 			};
 			body: {
 				paths: string[];
+				force?: boolean | undefined;
 			};
 			response: {
 				200: {
@@ -1061,6 +1063,7 @@ export type BonoboHttpApi = {
 			};
 			body: {
 				path: string;
+				force?: boolean | undefined;
 				access?: {
 					readOnly?: boolean | undefined;
 					readScopeId?: string | null | undefined;
@@ -1179,6 +1182,9 @@ export type BonoboHttpApi = {
 			};
 			body: {
 				path: string;
+				force?: boolean | undefined;
+				requestId?: string | undefined;
+				previousRequestId?: string | undefined;
 				writer?: {
 					writerId: string;
 					operationId: string;
@@ -1194,6 +1200,14 @@ export type BonoboHttpApi = {
 						"Cache-Control": "no-store";
 					};
 					body: {
+						requestId: string;
+						archivedNodes: number;
+						complete: boolean;
+						refused: {
+							path: string | null;
+							message: string;
+						}[];
+					} | {
 						archivedNodes: 1;
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
@@ -1208,14 +1222,11 @@ export type BonoboHttpApi = {
 							writerGeneration: number;
 							operationId: string;
 							sequence: number;
-							operation: "write" | "fence" | "archive" | "readers" | "rollback_readers" | "cancel_readers";
-							fingerprint: string;
 							contentRevision: string | null;
+							operation: "write" | "fence" | "archive" | "read_only" | "readers" | "rollback_readers" | "cancel_readers";
+							fingerprint: string;
 							readerRevision: number | null;
 						};
-					} | {
-						archivedNodes: number;
-						receipt?: undefined;
 					};
 				};
 				400: {
@@ -1319,9 +1330,9 @@ export type BonoboHttpApi = {
 							writerGeneration: number;
 							operationId: string;
 							sequence: number;
-							operation: "write" | "fence" | "archive" | "readers" | "rollback_readers" | "cancel_readers";
-							fingerprint: string;
 							contentRevision: string | null;
+							operation: "write" | "fence" | "archive" | "read_only" | "readers" | "rollback_readers" | "cancel_readers";
+							fingerprint: string;
 							readerRevision: number | null;
 						};
 					} | {
@@ -1441,7 +1452,7 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Permission denied" | "This item is read-only." | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
+						message: "Permission denied" | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
 					};
 				};
 				409: {
@@ -1449,7 +1460,7 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Permission denied" | "This item is read-only." | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
+						message: "Permission denied" | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
 					};
 				};
 				401: {
@@ -1586,9 +1597,9 @@ export type BonoboHttpApi = {
 						writerGeneration: number;
 						operationId: string;
 						sequence: number;
-						operation: "write" | "fence" | "archive" | "readers" | "rollback_readers" | "cancel_readers";
-						fingerprint: string;
 						contentRevision: string | null;
+						operation: "write" | "fence" | "archive" | "read_only" | "readers" | "rollback_readers" | "cancel_readers";
+						fingerprint: string;
 						readerRevision: number | null;
 					};
 				};
@@ -2584,11 +2595,16 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
+						events: never[];
+						currentRevision: number;
+						continueRevision: number;
+						isDone: true;
+					} | {
 						events: {
 							revision: number;
 							event: {
 								kind: "refresh";
-								reason: "installation" | "permissions" | "account" | "members";
+								reason: "installation" | "permissions" | "account";
 							} | {
 								kind: "member";
 								member: {
@@ -2614,6 +2630,89 @@ export type BonoboHttpApi = {
 						currentRevision: number;
 						continueRevision: number;
 						isDone: boolean;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "invalid_request";
+						message: string;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "permission_denied";
+						message: "Permission denied";
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "expired_lease";
+						message: "Lease has expired";
+					} | {
+						code: "unavailable";
+						message: "Installation is unavailable";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "unauthorized";
+						message: "Unauthorized";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "rate_limited";
+						message: "Rate limit exceeded";
+					};
+				};
+				410: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						code: "snapshot_required";
+						message: "Snapshot required";
+					} | {
+						code: "revoked";
+						message: "Installation has been removed";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/plugins/service-events/key": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				"X-Bonobo-Service-Authorization": string;
+			};
+			body: {
+				pluginName: string;
+			};
+			response: {
+				200: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						key: string;
+						createdAt: number;
 					};
 				};
 				400: {
