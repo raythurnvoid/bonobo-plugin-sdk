@@ -470,13 +470,15 @@ describe("bonobo_connect", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		const first = client.fetchJson("/api/v1/files/list", { limit: 100 });
-		const second = client.fetchJson("/api/v1/files/read", { path: "/notes.md" });
+		const second = client.fetchRaw("/api/v1/files/read", { path: "/notes.md" });
 		await vi.waitFor(() => expect(refresh_requests(postSpy)).toHaveLength(1));
 		answer_refresh({ postSpy: postSpy, token: "plu_2" });
 		await expect(first).resolves.toEqual({ status: 200, body: { bearer: "Bearer plu_2" } });
 
 		resolveDelayed401?.(new Response("late expired", { status: 401 }));
-		await expect(second).resolves.toEqual({ status: 200, body: { bearer: "Bearer plu_2" } });
+		const rawResponse = await second;
+		expect(rawResponse.status).toBe(200);
+		await expect(rawResponse.json()).resolves.toEqual({ bearer: "Bearer plu_2" });
 		expect(refresh_requests(postSpy)).toHaveLength(1);
 	});
 
@@ -577,6 +579,41 @@ describe("bonobo_connect", () => {
 		expect(refresh_requests(postSpy)).toHaveLength(2);
 		answer_refresh({ postSpy: postSpy, token: "plu_3" });
 		await expect(secondRefresh).resolves.toBe("plu_3");
+	});
+
+	test("returns raw bytes and headers without consuming the response", async () => {
+		const client = await connect_client();
+		const bytes = new Uint8Array([0, 255, 128, 123]);
+		const response = new Response(bytes, {
+			headers: { "Content-Type": "application/octet-stream", "X-File-Next-Cursor": "next-page" },
+		});
+		const fetchMock = vi.fn().mockResolvedValue(response);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await client.fetchRaw("/api/v1/files/read", { path: "/data.bin", cursor: null });
+		expect(result).toBe(response);
+		expect(result.bodyUsed).toBe(false);
+		expect(result.headers.get("X-File-Next-Cursor")).toBe("next-page");
+		expect(new Uint8Array(await result.arrayBuffer())).toEqual(bytes);
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe("https://api.test/api/v1/files/read");
+		expect(init.method).toBe("POST");
+		expect(init.redirect).toBe("error");
+		expect(init.body).toBe(JSON.stringify({ path: "/data.bin", cursor: null }));
+		expect(new Headers(init.headers).get("Authorization")).toBe("Bearer plu_1");
+	});
+
+	test("leaves raw error responses unread", async () => {
+		const client = await connect_client();
+		const response = new Response(JSON.stringify({ message: "File changed.", errorCode: "file_changed" }), {
+			status: 409,
+			headers: { "Content-Type": "application/json" },
+		});
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+		const result = await client.fetchRaw("/api/v1/files/read", { path: "/data.bin" });
+		expect(result).toBe(response);
+		expect(result.bodyUsed).toBe(false);
+		await expect(result.json()).resolves.toEqual({ message: "File changed.", errorCode: "file_changed" });
 	});
 
 	test("resolves every answer, whatever its status", async () => {
@@ -814,7 +851,11 @@ describe("bonobo_connect", () => {
 		// at the first `>`: the return type is nested now, so a `[^>]*` scan would run past the
 		// signature and swallow the next member.
 		const fetchJsonDeclaration = declaration.match(/\bfetchJson<[^]*?\n\t\): [^\n]*;/)?.[0] ?? "";
-		expect(fetchJsonDeclaration).toContain("fetchJson<P extends BonoboHttpApiPath>");
+		expect(fetchJsonDeclaration).toContain("fetchJson<P extends BonoboHttpJsonApiPath>");
+		expect(declaration).toContain('Exclude<BonoboHttpApiPath, "/api/v1/files/read">');
+		const fetchRawDeclaration = declaration.match(/\bfetchRaw<[^]*?\n\t\): [^\n]*;/)?.[0] ?? "";
+		expect(fetchRawDeclaration).toContain("fetchRaw<P extends BonoboHttpApiPath>");
+		expect(fetchRawDeclaration.endsWith("): Promise<Response>;")).toBe(true);
 		// The body is its own parameter and the answer is the route's own status union. Both come
 		// from the generated table, so a plugin needs no second parser for a shape the app types.
 		expect(fetchJsonDeclaration).toContain('body: BonoboHttpApi[P]["POST"]["body"]');

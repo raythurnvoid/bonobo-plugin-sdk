@@ -4,6 +4,11 @@ import type { BonoboConvexApi } from "bonobo-plugin-sdk/convex-api";
 import type { BonoboHttpApi, BonoboHttpApiPath, BonoboHttpResponse } from "bonobo-plugin-sdk/http-api";
 
 /**
+ * Routes whose successful response is JSON. Files reads return bytes instead.
+ */
+export type BonoboHttpJsonApiPath = Exclude<BonoboHttpApiPath, "/api/v1/files/read">;
+
+/**
  * Sent by the frame to `window.parent` at the exact `parentOrigin` from the URL fragment once the
  * connect listener is installed. It tells the host this frame is ready to receive
  * {@link BonoboInitMessage} and proves it read the frame's bootstrap nonce.
@@ -238,7 +243,7 @@ export interface BonoboClient {
 	 */
 	context: BonoboContext;
 	/**
-	 * Origin of the public host API — `fetchJson` prefixes it onto `path`.
+	 * Origin of the public host API — `fetchRaw` and `fetchJson` prefix it onto `path`.
 	 */
 	apiOrigin: string;
 	/**
@@ -253,7 +258,22 @@ export interface BonoboClient {
 	 */
 	refreshToken(): Promise<string>;
 	/**
-	 * `POST apiOrigin + path` with `body` as JSON, and the route's own answer back.
+	 * Send one JSON request and return its native Response, with headers and the body unread.
+	 * Use this for `/api/v1/files/read`. Check status before reading bytes or a JSON error.
+	 * Follow `X-File-Next-Cursor` with the same path; no cursor means the file is complete.
+	 *
+	 * Owns method POST, the JSON body, Authorization, Content-Type, and redirect: "error".
+	 * Other RequestInit fields pass through. A 401 refreshes the session and resends once.
+	 * Every HTTP status resolves. Network, abort, redirect, and session-refresh failures reject.
+	 */
+	fetchRaw<P extends BonoboHttpApiPath>(
+		path: P,
+		body: BonoboHttpApi[P]["POST"]["body"],
+		init?: Omit<RequestInit, "method" | "body" | "redirect">,
+	): Promise<Response>;
+	/**
+	 * `POST apiOrigin + path` with `body` as JSON, and the route's own JSON answer back.
+	 * Files reads use `fetchRaw` because their successful response is bytes.
 	 *
 	 * `path` and `body` are typed from the app's own route table ({@link BonoboHttpApi}, generated
 	 * into `bonobo-plugin-sdk/http-api`), so a path the host does not serve and a body field the
@@ -310,7 +330,7 @@ export interface BonoboClient {
 	 * (say 30), keep `cursor` across actions, buffer items fetched beyond what is shown, and retry a
 	 * `429` on the same cursor — the page is not lost.
 	 */
-	fetchJson<P extends BonoboHttpApiPath>(
+	fetchJson<P extends BonoboHttpJsonApiPath>(
 		path: P,
 		body: BonoboHttpApi[P]["POST"]["body"],
 		init?: Omit<RequestInit, "method" | "body" | "redirect">,

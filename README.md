@@ -270,6 +270,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
 
+0.25.0 replaces all file reads with `POST /api/v1/files/read` and `{ path, cursor? }`. Success is raw bytes. Use `client.fetchRaw`, which returns a native `Response` with its body unread. `fetchJson` accepts only JSON routes. Follow `X-File-Next-Cursor` until it is absent. The old whole-file JSON response, `maxBytes`, `read-many`, and `read-bytes` are removed.
+
 0.23.0 adds `order: "asc" | "desc"` to `/api/v1/files/list`. With `"desc"`, a folder list (no `recursive`) returns its children in reverse name order.
 
 0.22.0 adds page agent tools: the manifest page field `agent.tools`, the `agent.page-tools` capability, the `mail` nav icon, and `client.agent.registerTool` in the frontend client.
@@ -684,17 +686,23 @@ UI tokens are rejected on `/api/v1/files/write`.
 
 A UI token also reaches `POST /api/v1/plugin-data/read` and `/list` (with `plugin.data.read`), `POST /api/v1/plugin-backend/invoke` (with `plugin.backend.invoke`), and the same-origin `POST /plugins-ui/session-jwt` the SDK uses itself. Those seven routes are the whole UI surface.
 
-`client.fetchJson(path, body, init?)` is the one call a frame makes against those routes:
+Use `client.fetchRaw(path, body, init?)` for file reads and `client.fetchJson(path, body, init?)` for JSON routes. Both set the bearer token and retry once after a 401:
 
 ```ts
-fetchJson<P extends BonoboHttpApiPath>(
+fetchRaw<P extends BonoboHttpApiPath>(
+	path: P,
+	body: BonoboHttpApi[P]["POST"]["body"],
+	init?: Omit<RequestInit, "method" | "body" | "redirect">,
+): Promise<Response>;
+
+fetchJson<P extends BonoboHttpJsonApiPath>(
 	path: P,
 	body: BonoboHttpApi[P]["POST"]["body"],
 	init?: Omit<RequestInit, "method" | "body" | "redirect">,
 ): Promise<BonoboHttpResponse<P>>;
 ```
 
-All three types come from the generated `BonoboHttpApi` table, so a path the host does not serve and a body field the route does not accept are compile errors, and the answer is the route's own `{ status, body }` union. Narrow on `status` and the body narrows with it — success and refusal alike, with no cast and no second parser:
+The paths and request bodies come from the generated `BonoboHttpApi` table. `BonoboHttpJsonApiPath`, exported from `bonobo-plugin-sdk/frontend`, excludes raw file reads. JSON answers use the route's own `{ status, body }` union. Narrow on `status` and the body narrows with it:
 
 ```ts
 const res = await client.fetchJson("/api/v1/files/list", { limit: 100, kind: "file" });
@@ -754,6 +762,25 @@ Duplicate file IDs are rejected with `400` before they consume route capacity or
 Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): `contentTypePrefixes` takes up to 8 whole families like `image/` or exact types like `image/png`, and needs `recursive: true` and no `extension`. Any other value, like `image` or `image/png;charset=utf-8`, answers `400`; `image/p` means the exact type `image/p`, not a prefix. The server reads these types from indexes, so a page is full unless the access check drops files you may not read (only with `recursive`; a plain folder list returns them with `locked: true`). A page can still come back short while `isDone` is `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. `scanLimit` is ignored. `order: "desc"` lists a folder's direct children in reverse name order, with locked children in their place; it needs a list without `recursive` (else `400`), and a cursor works only with the order it was made for (`"asc"` is the same as no order). List with `limit: 100` and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor. `path` must be a folder: a missing or archived folder answers `404` `{ "message": "Folder not found: <path>" }` on any page, a folder you cannot open (or any path below it) answers `403` `{ "message": "Permission denied: <path>" }`, and a file answers `400`. The same rule holds for `files/read`: a file you cannot open is `403`, a missing one is `404`. The `cursor` is sealed and opaque. Send it back unchanged with the same body; an edited cursor, one from another request, or one from before a host update answers `400` `{ "message": "This list cursor changed. Start a new page.", "errorCode": "invalid_cursor" }`. Any Move or Rename in the workspace also ends open cursors, so this is a normal answer. Check `"errorCode" in body && body.errorCode === "invalid_cursor"`, not the message, start again with `cursor: null`, and skip the ids you already showed.
 
 Rate limits: each API key gets 120 requests per minute per route, with a burst of 20. Plugin UI sessions for the same user and installation in one workspace share one budget per route. The budget uses four parts of five tokens. A capacity refusal happens only when every part has less than one token. After a full drain, the first four tokens refill in about two seconds; all 20 refill in 10 seconds. A `429` body has `retryAfterMs`: wait that long plus a small random delay, then send the same body and cursor again. Parallel calls can still use up the server's write retries and get an early `429` with `retryAfterMs: 1000`. Keep about 4 calls in flight per route. `Plugin API call limit exceeded` (no `retryAfterMs`) does not clear inside the same run, so stop.
+
+File reads return up to one MiB per page with `Content-Type: application/octet-stream`, even for text or JSON files. `X-File-Content-Type`, `X-File-Revision`, and `X-File-Size` describe the saved file. `X-File-Next-Cursor` continues it. Keep the same path and send that cursor unchanged. No next cursor means EOF. An empty file is a successful empty page. Check the status before decoding; errors are JSON with `message` and `errorCode`. A changed version answers `409` with `file_changed`; discard collected pages and start again. Reads use the latest available saved version, which may lag the editor.
+
+For text, keep one decoder across pages so a UTF-8 character split between pages stays intact:
+
+```ts
+const decoder = new TextDecoder();
+let cursor: string | null = null;
+let text = "";
+do {
+	const response = await client.fetchRaw("/api/v1/files/read", { path, cursor });
+	if (!response.ok) throw new Error(`Read failed: HTTP ${response.status}`);
+	text += decoder.decode(await response.arrayBuffer(), { stream: true });
+	cursor = response.headers.get("X-File-Next-Cursor");
+} while (cursor !== null);
+text += decoder.decode();
+```
+
+The server chooses the page size. Stop when you have enough bytes, or continue to EOF. TODO: consider streaming, an optional `pageBytes` hint, and a saved-version freshness signal when callers need them.
 
 ### Using your own fetch
 

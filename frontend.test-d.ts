@@ -148,8 +148,19 @@ export async function http_type_check() {
 	// @ts-expect-error the host serves no such route.
 	void client.fetchJson("/api/v1/nope", {});
 
-	// @ts-expect-error `files/read` takes `path` and `maxBytes`, not `nodeId`.
-	void client.fetchJson("/api/v1/files/read", { path: "/notes.md", nodeId: "node_1" });
+	const read: Response = await client.fetchRaw("/api/v1/files/read", { path: "/notes.md", cursor: null });
+	const nextCursor: string | null = read.headers.get("X-File-Next-Cursor");
+	void nextCursor;
+	const readBytes: BonoboHttpApi["/api/v1/files/read"]["POST"]["response"][200]["body"] = new Uint8Array(0);
+	void readBytes;
+	// @ts-expect-error Files reads return bytes, not a JSON response.
+	void client.fetchJson("/api/v1/files/read", { path: "/notes.md" });
+	// @ts-expect-error `files/read` takes a path and cursor, not a preview length.
+	void client.fetchRaw("/api/v1/files/read", { path: "/notes.md", maxBytes: 800 });
+	// @ts-expect-error `files/read` takes a path, not a node ID.
+	void client.fetchRaw("/api/v1/files/read", { path: "/notes.md", nodeId: "node_1" });
+	// @ts-expect-error the SDK owns the method for raw requests too.
+	void client.fetchRaw("/api/v1/files/read", { path: "/notes.md" }, { method: "GET" });
 
 	// @ts-expect-error `method` is the SDK's; it always sends `POST`.
 	void client.fetchJson("/api/v1/files/list", { limit: 1 }, { method: "GET" });

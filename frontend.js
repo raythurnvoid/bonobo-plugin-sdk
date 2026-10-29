@@ -334,7 +334,45 @@ export async function bonobo_connect() {
 	};
 
 	/**
-	 * `POST apiOrigin + path` with `body` as JSON, and the route's own answer back.
+	 * Send one JSON request and return its Response with the body unread. All statuses resolve.
+	 * Refresh the session once on 401, sharing that refresh with other requests.
+	 *
+	 * @template {import("bonobo-plugin-sdk/http-api").BonoboHttpApiPath} P
+	 * @param {P} path
+	 * @param {import("bonobo-plugin-sdk/http-api").BonoboHttpApi[P]["POST"]["body"]} body
+	 * @param {Omit<RequestInit, "method" | "body" | "redirect">} [init]
+	 * @returns {Promise<Response>}
+	 */
+	async function fetchRaw(path, body, init) {
+		const payload = JSON.stringify(body);
+		/**
+		 * @param {string} bearer
+		 */
+		const send = (bearer) => {
+			const headers = new Headers(init?.headers);
+			headers.set("Authorization", `Bearer ${bearer}`);
+			headers.set("Content-Type", "application/json");
+			return fetch(apiOrigin + path, {
+				...init,
+				method: "POST",
+				body: payload,
+				headers,
+				redirect: "error",
+			});
+		};
+
+		const firstBearer = await getToken();
+		let response = await send(firstBearer);
+		if (response.status === 401) {
+			await response.body?.cancel();
+			// Reuse a token another request refreshed while this request was in flight.
+			response = await send(token !== firstBearer ? token : await refreshToken());
+		}
+		return response;
+	}
+
+	/**
+	 * `POST apiOrigin + path` with `body` as JSON, and the route's own JSON answer back.
 	 *
 	 * The result is `{ status, body }` typed from the app's route table
 	 * ({@link BonoboHttpResponse}, generated into `bonobo-plugin-sdk/http-api`), so narrowing on
@@ -370,36 +408,16 @@ export async function bonobo_connect() {
 	 * type cannot name them, and setting them last is the whole enforcement. Redirects are refused
 	 * because following one would resend the bearer to another origin, and no route redirects.
 	 *
-	 * @template {import("bonobo-plugin-sdk/http-api").BonoboHttpApiPath} P
+	 * @template {import("bonobo-plugin-sdk/frontend").BonoboHttpJsonApiPath} P
 	 * @param {P} path - Public API path starting with `/`, e.g. `"/api/v1/files/list"`.
 	 * @param {import("bonobo-plugin-sdk/http-api").BonoboHttpApi[P]["POST"]["body"]} body
 	 * @param {Omit<RequestInit, "method" | "body" | "redirect">} [init]
 	 * @returns {Promise<import("bonobo-plugin-sdk/http-api").BonoboHttpResponse<P>>}
 	 */
 	async function fetchJson(path, body, init) {
-		const payload = JSON.stringify(body);
-		/** @param {string} bearer */
-		const send = (bearer) => {
-			const headers = new Headers(init?.headers);
-			headers.set("Authorization", `Bearer ${bearer}`);
-			headers.set("Content-Type", "application/json");
-			headers.set("Accept", "application/json");
-			return fetch(apiOrigin + path, {
-				...init,
-				method: "POST",
-				body: payload,
-				headers,
-				redirect: "error",
-			});
-		};
-
-		const firstBearer = await getToken();
-		let response = await send(firstBearer);
-		if (response.status === 401) {
-			// Another request may already have rotated this captured bearer. Reuse the current
-			// token in that case so a late 401 cannot rotate the fresh token again.
-			response = await send(token !== firstBearer ? token : await refreshToken());
-		}
+		const headers = new Headers(init?.headers);
+		headers.set("Accept", "application/json");
+		const response = await fetchRaw(path, body, { ...init, headers });
 		// Read the body as text first, not with `response.json()`. A body that does not parse has
 		// to become `null` beside its status, and `response.json()` cannot do that: it rejects, and
 		// the status goes with it.
@@ -617,6 +635,7 @@ export async function bonobo_connect() {
 					apiOrigin,
 					getToken,
 					refreshToken,
+					fetchRaw,
 					fetchJson,
 					authorize,
 					convex: convexClient,
