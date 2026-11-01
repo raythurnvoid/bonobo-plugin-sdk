@@ -21,12 +21,12 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   capped by an exact destination path prefix. It never reaches the frame. The interactive
  *   exchange never mints that scope; the service gets it through the seal-processing route. A
  *   sealed grant may use the `/api/v1/files/service-uploads/*` routes, write editable text inside its
- *   seal through `/api/v1/files/write`, and archive a file marked for this plugin through
+ *   seal through `/api/v1/files/write`, and move a file marked for this plugin to Trash through
  *   `/api/v1/files/plugin-archive`.
  * - `workspace.files.manage-read-only` — lets a file caller set or clear Read-only and explicitly
  *   pass it with `force: true`. Current file access still applies. Declaring it also requires `workspace.files.write`.
- * - `workspace.files.own-write` — backend invoke runs may create, update, and archive files and
- *   folders marked by matching `plugin-name` metadata. Members may change or remove this label.
+ * - `workspace.files.own-write` — backend invoke runs may create or update files and folders marked
+ *   by matching `plugin-name` metadata, or move them to Trash. Members may change or remove this label.
  *   Registered services may use public Files APIs with a sealed grant and current service secret.
  *   An optional writer binds the output folder, write conditions, and replay receipts.
  *   Declaring it also requires `workspace.files.write`.
