@@ -699,7 +699,6 @@ export type BonoboHttpApi = {
 					expectedNodeId: string | null;
 					expectedContentRevision: string | null;
 					contentHash: string;
-					expectedReaderRevision?: null | undefined;
 				} | undefined;
 			};
 			response: {
@@ -725,7 +724,6 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
-							readerRevision?: number | null | undefined;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
@@ -737,7 +735,7 @@ export type BonoboHttpApi = {
 							sequence: number;
 							contentRevision: string | null;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
-							operation: "fence" | "archive" | "read_only" | "write" | "readers" | "rollback_readers" | "cancel_readers";
+							operation: "fence" | "archive" | "read_only" | "write";
 							fingerprint: string;
 						};
 						message?: undefined;
@@ -1233,7 +1231,6 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
-							readerRevision?: number | null | undefined;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
@@ -1245,7 +1242,7 @@ export type BonoboHttpApi = {
 							sequence: number;
 							contentRevision: string | null;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
-							operation: "fence" | "archive" | "read_only" | "write" | "readers" | "rollback_readers" | "cancel_readers";
+							operation: "fence" | "archive" | "read_only" | "write";
 							fingerprint: string;
 						};
 					};
@@ -1335,7 +1332,6 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
-							readerRevision?: number | null | undefined;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
@@ -1347,7 +1343,7 @@ export type BonoboHttpApi = {
 							sequence: number;
 							contentRevision: string | null;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
-							operation: "fence" | "archive" | "read_only" | "write" | "readers" | "rollback_readers" | "cancel_readers";
+							operation: "fence" | "archive" | "read_only" | "write";
 							fingerprint: string;
 						};
 					} | {
@@ -1522,7 +1518,6 @@ export type BonoboHttpApi = {
 					body: {
 						_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 						_creationTime: number;
-						readerRevision?: number | null | undefined;
 						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 						organizationId: import("convex/values").GenericId<"organizations">;
 						workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
@@ -1534,7 +1529,7 @@ export type BonoboHttpApi = {
 						sequence: number;
 						contentRevision: string | null;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
-						operation: "fence" | "archive" | "read_only" | "write" | "readers" | "rollback_readers" | "cancel_readers";
+						operation: "fence" | "archive" | "read_only" | "write";
 						fingerprint: string;
 					};
 				};

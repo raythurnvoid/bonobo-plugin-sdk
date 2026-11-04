@@ -269,6 +269,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
 
+0.25.3 removes `expectedReaderRevision` from `/api/v1/files/write`; the host now refuses it. Write receipts no longer have `readerRevision` or the reader operations. The runtime is unchanged.
+
 0.25.2 removes plugin reader lists: the `workspace.files.own-access` capability, the `readers` fields and the `/api/v1/files/plugin-access/undo` route. `expectedReaderRevision` on `/api/v1/files/write` may only be `null` or left out, and the next release removes it. Plugin file calls act as their person, limited by the plugin's service account. The runtime is unchanged.
 
 0.25.1 types the last page of `/api/v1/files/list` as `cursor: null`. It answered `""` before. Stop on `isDone`. It also types the safe write fields: optional `expectedRevision` on `/api/v1/files/write`, `revision`, `size` and `contentChanged` in write answers, and the `X-File-Is-Latest` read header. The docs say "move to Trash" instead of "archive". The runtime is unchanged.

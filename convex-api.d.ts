@@ -931,14 +931,14 @@ export type BonoboConvexApi = {
 				};
 				principals: {
 					userId: import("convex/values").GenericId<"users">;
-					level: "manage" | "member";
+					level: "member" | "manage";
 				}[];
 				collections: string[];
 			} | {
 				kind: "set_principal";
 				userId: import("convex/values").GenericId<"users">;
-				level: "manage" | "member";
 				scopeId: string;
+				level: "member" | "manage";
 			} | {
 				expectedPrincipalCount?: number | undefined;
 				kind: "remove_principal";
@@ -1301,7 +1301,7 @@ export type BonoboConvexApi = {
 			scopeId: string;
 		}, {
 			userId: import("convex/values").GenericId<"users">;
-			level: "manage" | "member";
+			level: "member" | "manage";
 		}[] | null, string | undefined>;
 		watch_my_scopes: import("convex/server").FunctionReference<"query", "public", {}, {
 			scopeId: string;
@@ -1313,7 +1313,7 @@ export type BonoboConvexApi = {
 				createdByUserId: string;
 				sequence: number;
 			}[];
-			level: "manage" | "member";
+			level: "member" | "manage";
 			membershipRevision: number;
 		}[] | null, string | undefined>;
 		watch_documents: import("convex/server").FunctionReference<"query", "public", {
