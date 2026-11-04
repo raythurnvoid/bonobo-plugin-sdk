@@ -479,7 +479,7 @@ export type BonoboHttpApi = {
 				limit?: number | undefined;
 				scanLimit?: number | undefined;
 				recursive?: boolean | undefined;
-				kind?: "folder" | "file" | undefined;
+				kind?: "file" | "folder" | undefined;
 				extension?: string | undefined;
 				contentTypePrefixes?: string[] | undefined;
 				order?: "asc" | "desc" | undefined;
@@ -493,7 +493,7 @@ export type BonoboHttpApi = {
 						items: {
 							path: string;
 							name: string;
-							kind: "folder" | "file";
+							kind: "file" | "folder";
 							nodeId: import("convex/values").GenericId<"files_nodes">;
 							contentType: string | null;
 							updatedAt: number;
@@ -698,8 +698,8 @@ export type BonoboHttpApi = {
 					sequence: number;
 					expectedNodeId: string | null;
 					expectedContentRevision: string | null;
-					expectedReaderRevision: number | null;
 					contentHash: string;
+					expectedReaderRevision?: null | undefined;
 				} | undefined;
 			};
 			response: {
@@ -725,8 +725,8 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
+							readerRevision?: number | null | undefined;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							nodeId: import("convex/values").GenericId<"files_nodes">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
 							createdAt: number;
@@ -736,9 +736,9 @@ export type BonoboHttpApi = {
 							operationId: string;
 							sequence: number;
 							contentRevision: string | null;
-							operation: "write" | "fence" | "archive" | "read_only" | "readers" | "rollback_readers" | "cancel_readers";
+							nodeId: import("convex/values").GenericId<"files_nodes">;
+							operation: "fence" | "archive" | "read_only" | "write" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
-							readerRevision: number | null;
 						};
 						message?: undefined;
 						revision?: undefined;
@@ -839,7 +839,7 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 						errorCode: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied" | "This item is being deleted." | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						message: "Unauthenticated" | "Permission denied" | "This item is being deleted." | "This item is read-only." | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
 						path?: undefined;
 						nodeId?: undefined;
 						contentType?: undefined;
@@ -858,7 +858,7 @@ export type BonoboHttpApi = {
 						message: string;
 						errorCode: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied" | "This item is being deleted." | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						message: "Unauthenticated" | "Permission denied" | "This item is being deleted." | "This item is read-only." | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
 						path?: undefined;
 						nodeId?: undefined;
 						contentType?: undefined;
@@ -881,7 +881,7 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 						errorCode: string;
 					} | {
-						message: "Unauthenticated" | "Permission denied" | "This item is being deleted." | "This item is read-only." | "The file readers changed" | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
+						message: "Unauthenticated" | "Permission denied" | "This item is being deleted." | "This item is read-only." | "The output folder or writer changed" | "This operation was already used for another write" | "A newer file write already exists" | "The file changed during the write";
 						path?: undefined;
 						nodeId?: undefined;
 						contentType?: undefined;
@@ -1104,11 +1104,6 @@ export type BonoboHttpApi = {
 				force?: boolean | undefined;
 				access?: {
 					readOnly?: boolean | undefined;
-					readScopeId?: string | null | undefined;
-					readers?: {
-						userId: string;
-						membershipLifetime: number;
-					}[] | undefined;
 				} | undefined;
 				writer?: {
 					resourceKey: string;
@@ -1129,15 +1124,11 @@ export type BonoboHttpApi = {
 							rootNodeId: import("convex/values").GenericId<"files_nodes">;
 							folderNodeId: import("convex/values").GenericId<"files_nodes">;
 							writerGeneration: number;
-							readerRevision: number | null;
-							detached: boolean;
 						} | {
 							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
 							rootNodeId: import("convex/values").GenericId<"files_nodes">;
 							folderNodeId: import("convex/values").GenericId<"files_nodes">;
 							writerGeneration: 1;
-							readerRevision: 1 | null;
-							detached: false;
 						};
 					} | {
 						nodeId: import("convex/values").GenericId<"files_nodes">;
@@ -1186,14 +1177,6 @@ export type BonoboHttpApi = {
 						retryAfterMs?: undefined;
 					} | {
 						message: "Unauthenticated";
-					};
-				};
-				404: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
 					};
 				};
 				429: {
@@ -1250,8 +1233,8 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
+							readerRevision?: number | null | undefined;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							nodeId: import("convex/values").GenericId<"files_nodes">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
 							createdAt: number;
@@ -1261,9 +1244,9 @@ export type BonoboHttpApi = {
 							operationId: string;
 							sequence: number;
 							contentRevision: string | null;
-							operation: "write" | "fence" | "archive" | "read_only" | "readers" | "rollback_readers" | "cancel_readers";
+							nodeId: import("convex/values").GenericId<"files_nodes">;
+							operation: "fence" | "archive" | "read_only" | "write" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
-							readerRevision: number | null;
 						};
 					};
 				};
@@ -1334,18 +1317,12 @@ export type BonoboHttpApi = {
 			body: {
 				path: string;
 				access: {
-					readOnly?: boolean | undefined;
-					readScopeId?: string | null | undefined;
-					readers?: {
-						userId: string;
-						membershipLifetime: number;
-					}[] | undefined;
+					readOnly: boolean;
 				};
 				writer?: {
 					writerId: string;
 					operationId: string;
 					writerGeneration: number;
-					expectedReaderRevision: number;
 				} | undefined;
 			};
 			response: {
@@ -1358,8 +1335,8 @@ export type BonoboHttpApi = {
 						receipt: {
 							_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 							_creationTime: number;
+							readerRevision?: number | null | undefined;
 							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-							nodeId: import("convex/values").GenericId<"files_nodes">;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
 							createdAt: number;
@@ -1369,9 +1346,9 @@ export type BonoboHttpApi = {
 							operationId: string;
 							sequence: number;
 							contentRevision: string | null;
-							operation: "write" | "fence" | "archive" | "read_only" | "readers" | "rollback_readers" | "cancel_readers";
+							nodeId: import("convex/values").GenericId<"files_nodes">;
+							operation: "fence" | "archive" | "read_only" | "write" | "readers" | "rollback_readers" | "cancel_readers";
 							fingerprint: string;
-							readerRevision: number | null;
 						};
 					} | {
 						nodeId: import("convex/values").GenericId<"files_nodes">;
@@ -1443,82 +1420,6 @@ export type BonoboHttpApi = {
 			};
 		};
 	};
-	"/api/v1/files/plugin-access/undo": {
-		POST: {
-			pathParams: never;
-			searchParams: never;
-			headers: {
-				Authorization: string;
-				"X-Bonobo-Service-Authorization": string;
-			};
-			body: {
-				writerId: string;
-				operationId: string;
-				writerGeneration: number;
-				receiptId?: string | undefined;
-				originalReaderOperationId?: string | undefined;
-			};
-			response: {
-				200: {
-					headers: {
-						"Cache-Control": "no-store";
-					};
-					body: {
-						_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
-						readerRevision: number;
-						detached: false;
-						restored: true;
-					} | {
-						_id: null;
-						readerRevision: number;
-						detached: true;
-						restored: false;
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Permission denied" | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
-					};
-				};
-				409: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Permission denied" | "Choose one reader operation" | "Use a separate rollback operation" | "This operation was already used" | "The output folder changed" | "A newer file access change exists";
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						code?: string | undefined;
-						message: "Unauthenticated";
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Rate limit exceeded";
-					};
-				};
-			};
-		};
-	};
 	"/api/v1/files/plugin-writers/inspect": {
 		POST: {
 			pathParams: never;
@@ -1544,8 +1445,6 @@ export type BonoboHttpApi = {
 						contentRevision: string | null;
 						expectedParentNodeId: import("convex/values").GenericId<"files_nodes">;
 						writerGeneration: number;
-						readerRevision: number | null;
-						detached: boolean;
 					};
 				};
 				400: {
@@ -1623,8 +1522,8 @@ export type BonoboHttpApi = {
 					body: {
 						_id: import("convex/values").GenericId<"plugins_external_file_receipts">;
 						_creationTime: number;
+						readerRevision?: number | null | undefined;
 						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
-						nodeId: import("convex/values").GenericId<"files_nodes">;
 						organizationId: import("convex/values").GenericId<"organizations">;
 						workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
 						createdAt: number;
@@ -1634,9 +1533,9 @@ export type BonoboHttpApi = {
 						operationId: string;
 						sequence: number;
 						contentRevision: string | null;
-						operation: "write" | "fence" | "archive" | "read_only" | "readers" | "rollback_readers" | "cancel_readers";
+						nodeId: import("convex/values").GenericId<"files_nodes">;
+						operation: "fence" | "archive" | "read_only" | "write" | "readers" | "rollback_readers" | "cancel_readers";
 						fingerprint: string;
-						readerRevision: number | null;
 					};
 				};
 				400: {
