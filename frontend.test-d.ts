@@ -213,6 +213,46 @@ export async function http_type_check() {
 	return { runId: "", pluginStatus: 0 };
 }
 
+export async function trash_type_check() {
+	const trash = await client.fetchJson("/api/v1/files/trash/list", {
+		folderNodeId: "folder_1",
+		cursor: null,
+		limit: 2,
+	});
+	if (trash.status === 200 && trash.body !== null) {
+		const cursor: string | null = trash.body.cursor;
+		const isDone: boolean = trash.body.isDone;
+		for (const item of trash.body.items) {
+			const nodeId: string = item.nodeId;
+			const archiveOperationId: string = item.archiveOperationId;
+			const changedBy: string | null = item.changedBy;
+			const locked: boolean = item.locked;
+			void [nodeId, archiveOperationId, changedBy, locked];
+		}
+		void [cursor, isDone];
+	}
+	if (trash.status === 400 && trash.body !== null && "errorCode" in trash.body) {
+		const errorCode: "invalid_cursor" | undefined = trash.body.errorCode;
+		void errorCode;
+	}
+	const areas = await client.fetchJson("/api/v1/files/trash/areas", { cursor: null, limit: 2 });
+	if (areas.status === 200 && areas.body !== null) {
+		const cursor: string | null = areas.body.cursor;
+		for (const area of areas.body.areas) {
+			const areaNodeId: string | null = area.areaNodeId;
+			const path: string = area.path;
+			void [areaNodeId, path];
+		}
+		void cursor;
+	}
+	// @ts-expect-error folder IDs are strings.
+	void client.fetchJson("/api/v1/files/trash/list", { folderNodeId: 1 });
+	// @ts-expect-error page sizes are numbers.
+	void client.fetchJson("/api/v1/files/trash/areas", { limit: "2" });
+	// @ts-expect-error plugin Restore is not open.
+	void client.fetchJson("/api/v1/files/restore", {});
+}
+
 export function account_deleted_type_check(event: BonoboAccountDeletedEvent) {
 	const eventType: "users.account.deleted" = event.event;
 	const deletedUserId: string = event.actorUserId;
