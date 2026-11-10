@@ -249,8 +249,32 @@ export async function trash_type_check() {
 	void client.fetchJson("/api/v1/files/trash/list", { folderNodeId: 1 });
 	// @ts-expect-error page sizes are numbers.
 	void client.fetchJson("/api/v1/files/trash/areas", { limit: "2" });
-	// @ts-expect-error plugin Restore is not open.
-	void client.fetchJson("/api/v1/files/restore", {});
+}
+
+export async function restore_type_check() {
+	const restored = await client.fetchJson("/api/v1/files/restore", {
+		nodes: [{ nodeId: "node_1", archiveOperationId: "delete_1" }],
+		onConflict: "skip",
+		requestId: "request_1",
+	});
+	if (restored.status === 200 && restored.body !== null && !("dryRun" in restored.body)) {
+		const jobIds: string[] = restored.body.jobIds;
+		const refusedPath: string | null | undefined = restored.body.refused[0]?.path;
+		void [jobIds, refusedPath];
+	}
+	// @ts-expect-error Restore has no Replace.
+	void client.fetchJson("/api/v1/files/restore", { paths: ["/a.md"], onConflict: "replace", requestId: "r" });
+
+	const job = await client.fetchJson("/api/v1/files/jobs/get", { jobId: "job_1", cursor: null });
+	if (job.status === 200 && job.body !== null) {
+		const refusedCursor: string | null = job.body.refusedCursor;
+		const newPath: string | null | undefined = job.body.renamed[0]?.newPath;
+		void [refusedCursor, newPath];
+	}
+	if (job.status === 400 && job.body !== null) {
+		const errorCode: "invalid_cursor" | undefined = job.body.errorCode;
+		void errorCode;
+	}
 }
 
 export function account_deleted_type_check(event: BonoboAccountDeletedEvent) {

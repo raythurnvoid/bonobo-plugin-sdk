@@ -466,6 +466,254 @@ export type BonoboHttpApi = {
 			};
 		};
 	};
+	"/api/v1/files/restore": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				force?: boolean | undefined;
+				paths?: string[] | undefined;
+				nodes?: {
+					nodeId: string;
+					archiveOperationId: string;
+				}[] | undefined;
+				onConflict?: "skip" | "keep_both" | undefined;
+				dryRun?: boolean | undefined;
+				requestId?: string | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						jobIds: import("convex/values").GenericId<"activities">[];
+						isDone: boolean;
+						refused: ({
+							path: string;
+							message: string;
+						} | {
+							path: string | null;
+							message: string;
+							nodeId: string;
+						})[] | ({
+							path: string | null;
+							message: string;
+							nodeId: string;
+						} | {
+							path: null;
+							message: string;
+						})[];
+					} | {
+						dryRun: true;
+						complete: boolean;
+						refused: ({
+							path: string;
+							message: string;
+						} | {
+							path: string | null;
+							message: string;
+							nodeId: string;
+						})[] | ({
+							path: string | null;
+							message: string;
+							nodeId: string;
+						} | {
+							path: null;
+							message: string;
+						})[];
+						jobs: ({
+							kind: "copy" | "move" | "restore" | "delete";
+							status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+							errorMessage: string | null;
+							progress: {
+								failed: number;
+								canceled: number;
+								completed: number;
+								blocked: number;
+								skipped: number;
+								unit: "items" | "files";
+								discovered: number;
+								total: number | null;
+							} | undefined;
+							refused: {
+								path: string;
+								message: string;
+							}[] | {
+								path: string | null;
+								message: string;
+							}[];
+							renamed: {
+								path: string;
+								newPath: string;
+							}[] | {
+								path: string;
+								newPath: string;
+							}[];
+							hasMoreItems: boolean;
+						} | {
+							kind: "restore";
+							status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+							errorMessage: string | null;
+							progress: {
+								failed: number;
+								canceled: number;
+								completed: number;
+								blocked: number;
+								skipped: number;
+								unit: "items" | "files";
+								discovered: number;
+								total: number | null;
+							} | undefined;
+							refused: ({
+								path: string | null;
+								message: string;
+								nodeId: string;
+							} | {
+								path: string | null;
+								message: string;
+							})[];
+							renamed: {
+								path: string | null;
+								newPath: string | null;
+							}[];
+							hasMoreItems: boolean;
+						})[];
+						message?: undefined;
+						nodeId?: undefined;
+						path?: undefined;
+						retryAfterMs?: undefined;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						nodeId?: undefined;
+						path?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+						retryAfterMs?: undefined;
+					} | {
+						message: "Duplicate node in batch";
+						nodeId: string;
+						path?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+						retryAfterMs?: undefined;
+					} | {
+						message: "Path must be absolute.";
+						path: string;
+						nodeId?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+						retryAfterMs?: undefined;
+					} | {
+						message: "Path must not be the workspace root.";
+						path: string;
+						nodeId?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+						retryAfterMs?: undefined;
+					} | {
+						message: "Duplicate path in batch";
+						path: string;
+						nodeId?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+						retryAfterMs?: undefined;
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						retryAfterMs: number | undefined;
+						nodeId?: undefined;
+						path?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				409: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						retryAfterMs: number | undefined;
+						nodeId?: undefined;
+						path?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						retryAfterMs: number | undefined;
+						nodeId?: undefined;
+						path?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						retryAfterMs: number | undefined;
+						nodeId?: undefined;
+						path?: undefined;
+						dryRun?: undefined;
+						complete?: undefined;
+						refused?: undefined;
+						jobs?: undefined;
+					} | {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+			};
+		};
+	};
 	"/api/v1/files/trash/list": {
 		POST: {
 			pathParams: never;
@@ -614,6 +862,162 @@ export type BonoboHttpApi = {
 					body: {
 						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						retryAfterMs: number;
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/files/jobs/get": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				jobId: string;
+				cursor?: string | null | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						jobId: import("convex/values").GenericId<"activities">;
+						kind: "copy" | "move";
+						status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+						progress: {
+							failed: number;
+							canceled: number;
+							completed: number;
+							blocked: number;
+							skipped: number;
+							unit: "items" | "files";
+							discovered: number;
+							total: number | null;
+						} | undefined;
+						errorMessage: string | null;
+						refused: {
+							path: string;
+							message: string;
+						}[];
+						renamed: {
+							path: string;
+							newPath: string;
+						}[];
+						refusedCursor: string | null;
+					} | {
+						jobId: import("convex/values").GenericId<"activities">;
+						kind: "restore" | "delete";
+						status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+						progress: {
+							failed: number;
+							canceled: number;
+							completed: number;
+							blocked: number;
+							skipped: number;
+							unit: "items" | "files";
+							discovered: number;
+							total: number | null;
+						} | undefined;
+						errorMessage: string | null;
+						refused: {
+							path: string | null;
+							message: string;
+						}[];
+						renamed: {
+							path: string;
+							newPath: string;
+						}[];
+						refusedCursor: string | null;
+					} | {
+						refusedCursor: string | null;
+						jobId: import("convex/values").GenericId<"activities">;
+						kind: "restore";
+						status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+						progress: {
+							failed: number;
+							canceled: number;
+							completed: number;
+							blocked: number;
+							skipped: number;
+							unit: "items" | "files";
+							discovered: number;
+							total: number | null;
+						} | undefined;
+						errorMessage: string | null;
+						refused: ({
+							path: string | null;
+							message: string;
+							nodeId: string;
+						} | {
+							path: string | null;
+							message: string;
+						})[];
+						renamed: {
+							path: string | null;
+							newPath: string | null;
+						}[];
+						message?: undefined;
+						errorCode?: undefined;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode?: undefined;
+					} | {
+						message: "This job cursor changed. Start a new page.";
+						errorCode: "invalid_cursor";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Permission denied";
+						errorCode?: undefined;
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Unauthenticated";
+						errorCode?: undefined;
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Job not found";
+						errorCode?: undefined;
 					};
 				};
 				429: {
@@ -1126,10 +1530,10 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
-					} | {
 						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
+					} | {
+						message: string;
 					};
 				};
 				409: {
@@ -1145,10 +1549,10 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: string;
-					} | {
 						message: "Unauthenticated" | "Unauthorized" | "Permission denied" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed" | "Scheduled plugin runs cannot use Trash yet." | "Plugin API call limit exceeded";
 						retryAfterMs?: undefined;
+					} | {
+						message: string;
 					};
 				};
 				429: {

@@ -12,8 +12,9 @@ Backend run (`fetch(request, env, ctx)`):
 - `outbound.fetch` — native `fetch` to third-party HTTPS origins listed in the manifest's `outboundOrigins`.
 - `plugin.data.read` — read the plugin's own document store.
 - `plugin.data.write` — create, change, and delete documents in that store. Declaring it also requires `plugin.data.read`.
-- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`. Files calls use the member's applied choices in **My file permissions**. An unreadable target answers `403`, and a missing one answers `404`. A folder list shows unreadable items with `locked: true`; a `recursive` list shows a locked item once and lists nothing under a locked folder. Runs may also list Trash, except scheduled runs. `files/download-urls` stays bound to the triggering upload.
+- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`. Files calls use the member's applied choices in **My file permissions**. An unreadable target answers `403`, and a missing one answers `404`. A folder list shows unreadable items with `locked: true`; a `recursive` list shows a locked item once and lists nothing under a locked folder. Runs may also list Trash and read their own Restore jobs, except scheduled runs. `files/download-urls` stays bound to the triggering upload.
 - `workspace.files.own-write` — an invoke run may create or update files and folders marked for this plugin, or move them to Trash. Only exact string `plugin-name` metadata matching the installed plugin name selects an existing node. Members may edit or remove the label through ordinary metadata controls. Applied file consent and current locks still apply. Declaring it also requires `workspace.files.write`.
+- `workspace.files.restore` — a run that is not scheduled may restore items from Trash through `/api/v1/files/restore`. Items need no plugin label; applied Can edit decides. Declaring it also requires `workspace.files.write`. See [Restore](#restore).
 - `workspace.volumes.write` — write the installation's external Mounts through the five `/api/v1/volumes/*` routes. Workspace readers and the chat agent get read-only access.
 - `plugin.schedule.run` — run at the declared interval and request a follow-up. The selected user must grant their own scopes; every operation still checks their current access.
 
@@ -271,6 +272,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
 
+0.25.5 opens plugin Restore. It adds the `workspace.files.restore` capability and types `/api/v1/files/restore` and `/api/v1/files/jobs/get`. See [Restore](#restore). The runtime is unchanged.
+
 0.25.4 adds the two Trash list routes and their scheduled-run refusal. File access uses personal consent, including Whole workspace. Plugin Restore stays closed. The runtime is unchanged.
 
 0.25.3 removes `expectedReaderRevision` from `/api/v1/files/write`; the host now refuses it. Write receipts no longer have `readerRevision` or the reader operations. The runtime is unchanged.
@@ -382,11 +385,31 @@ even when that folder is itself in Trash. `{ areaNodeId }` names a restricted ar
 Use `{areaNodeId:null}` to list the open workspace's Trash. A file-only choice adds
 no parent access or area. Guests and scheduled runs get 403; scheduled runs get the message
 `Scheduled plugin runs cannot use Trash yet.`. Items include `changedBy`.
-Plugin Restore is not available yet.
+To bring items back, see [Restore](#restore).
 
 Chitchat and Council write files one way from their own databases. Files edits never change chat data or Council D1. Chitchat uses durable transcript jobs, saved folder/file IDs, writer generations, and exact write receipts through public Files APIs. A blocked transcript does not undo a saved message; its sync status is separate from the message receipt. Ordinary sync preserves unrelated manual text; a confirmed rebuild may replace it. Council replaces the full note on a later source revision. A refused pending revision can retry after access is restored while its grant remains live; a caught-up note needs another source revision.
 
 Error statuses: `400` invalid input, `401` bad or expired run token, `403` missing scope, permission, or matching label, `404` missing or mismatched resource (including a `fileNodeId` that is not the run's source), `409` overwrite, current lock, or target/parent identity conflict, `429` run call quota or rate limit, `500` curated storage failure. An event or invoke run may succeed without writing a file. The host requires a complete successful response and settled API calls.
+
+### Restore
+
+With `workspace.files.restore`, a run that is not scheduled may call `POST /api/v1/files/restore`. It works like Restore in the app Trash.
+
+- Body: `{ paths | nodes, onConflict?, requestId?, dryRun?, force? }`. Send 1–100 absolute `paths`, or 1–100 `nodes` as `{ nodeId, archiveOperationId }` from `files/trash/list`, not both. Use `nodes` when several deleted items have one path.
+- Each item comes back with only its descendants from the same delete, at the path it had. The run acts as its personal pair: each item needs applied Can edit, also where it lands. Items need no plugin label.
+- `onConflict` is `keep_both` (the default, which picks a new name) or `skip` (the item stays in Trash). There is no Replace. `force: true` passes Read-only and also needs `workspace.files.manage-read-only`.
+- `requestId` (1–64 characters) is required, except for a dry run. Save it before you send. The same `requestId` and body, from this run or a later run with the same installation and personal pair, returns the same `jobIds`; another body answers `409`. A request that refused every item saves nothing, so a retry runs it again. The saved request lasts 7 days after its jobs end.
+- `dryRun: true` restores and then undoes everything. Send no `requestId`. It answers `{ dryRun: true, complete, refused, jobs }`; each job has the `jobs/get` fields without `jobId` and `refusedCursor`, plus `hasMoreItems`.
+- Success: `{ jobIds, isDone, refused }`, one job per delete. Refusals use short fixed messages. A refusal shows a path only when you sent that path; a refused node has `path: null`.
+- A job goes on after the run ends. Before each later step it checks the installation, version, service account, personal pair, membership and capabilities again. When one changed (an upgrade, a new capability acceptance, a removal, lost consent or membership), the job stops. Items it already restored stay. A retry then returns the stopped job; send a new `requestId` to restore the rest.
+- Pages, scheduled runs, service grants and guests cannot restore.
+
+Read a job with `POST /api/v1/files/jobs/get` and `{ jobId, cursor? }`. It needs `workspace.files.read`, not Restore. A run (not scheduled) or a page with the same installation and personal pair may read it, also after an upgrade. Any other job answers `404 Job not found`, and jobs are deleted 7 days after they end.
+
+- Success: `{ jobId, kind: "restore", status, progress, errorMessage, refused, renamed, refusedCursor }`. `renamed` lists Keep both items as `{ path, newPath }`. `refused` lists skipped items, one unfinished item when the job stopped, and, on the first page of the request's last job, the items the request refused.
+- Items come 100 per page. Follow `refusedCursor` until it is `null`. A row you cannot read now keeps its place with `path: null` (and `newPath: null`), so a page can hold only such rows.
+- `refusedCursor` is sealed. It works for the same job, installation and personal pair, also from a later run or a page. A changed cursor answers `400` with `errorCode: "invalid_cursor"`; start again with `cursor: null`.
+- `errorMessage` is a short fixed message and never names an item.
 
 ### Conditional service writes
 
@@ -710,10 +733,11 @@ With the `workspace.files.read` capability the UI token may call:
 | `POST /api/v1/files/list`          | `files:list`     |
 | `POST /api/v1/files/trash/list`    | `files:list`     |
 | `POST /api/v1/files/trash/areas`   | `files:list`     |
+| `POST /api/v1/files/jobs/get`      | `files:list`     |
 | `POST /api/v1/files/read`          | `files:read`     |
 | `POST /api/v1/files/download-urls` | `files:download` |
 
-UI tokens are rejected on `/api/v1/files/write`.
+UI tokens are rejected on `/api/v1/files/write` and `/api/v1/files/restore`. `files/jobs/get` reads only the plugin's own Restore jobs (see [Restore](#restore)).
 
 A UI token also reaches `POST /api/v1/plugin-data/read` and `/list` (with `plugin.data.read`), `POST /api/v1/plugin-backend/invoke` (with `plugin.backend.invoke`), and the same-origin `POST /plugins-ui/session-jwt` the SDK uses itself. These routes are the whole UI surface.
 
@@ -778,7 +802,7 @@ A status the route does not declare — a gateway `503`, say — resolves like a
 
 `method`, `body` and `redirect` are removed from `init`'s type as well. The three headers cannot be: header names are case-insensitive, so the type cannot name them, and setting them last is the whole enforcement.
 
-The table holds every route a plugin's frame or backend run may reach. It does not hold the service-upload routes above, which only a sealed `psg_` grant may call. Because it holds the backend-run routes too, typing accepts a few paths a UI token cannot use: `/api/v1/files/write` compiles and still answers `403`. The nine routes above are the ones that work.
+The table holds every route a plugin's frame or backend run may reach. It does not hold the service-upload routes above, which only a sealed `psg_` grant may call. Because it holds the backend-run routes too, typing accepts a few paths a UI token cannot use: `/api/v1/files/write` compiles and still answers `403`. The ten routes above are the ones that work.
 
 `files/download-urls` accepts at most 100 file IDs in a 32 KB request, processes the first 20, and returns `{ items, errors, truncated }`.
 Set `download: true` to sign `Content-Disposition: attachment`, including for images and video.

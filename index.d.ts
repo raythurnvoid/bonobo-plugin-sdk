@@ -30,6 +30,12 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *   Registered services may use public Files APIs with a sealed grant and current service secret.
  *   An optional writer binds the folder, write conditions, and replay receipts.
  *   Declaring it also requires `workspace.files.write`.
+ * - `workspace.files.restore` — backend runs that are not scheduled get the `files:restore` scope
+ *   for `/api/v1/files/restore`. It reaches items in Trash where the member's file choices allow
+ *   Edit; the items need no plugin label. Each job keeps the run's installation and file pair, goes on
+ *   after the run ends, and stops when the plugin is updated, removed, or loses access. Read a job with
+ *   `/api/v1/files/jobs/get`, which needs `workspace.files.read`. Declaring it also requires
+ *   `workspace.files.write`.
  * - `workspace.volumes.write` — backend runs may write their installation's external Mounts
  *   through `/api/v1/volumes/*`. Mounts are read-only for workspace readers and the chat agent.
  * - `plugin.data.read` — backend runs, UI pages and file views, and eligible registered service grants
@@ -78,6 +84,7 @@ export type BonoboCapability =
 	| "workspace.files.write"
 	| "workspace.files.manage-read-only"
 	| "workspace.files.own-write"
+	| "workspace.files.restore"
 	| "workspace.volumes.write"
 	| "plugin.data.read"
 	| "plugin.data.write"
