@@ -43,6 +43,7 @@ Chat agent (see [MCP servers and skills](#mcp-servers-and-skills)):
 - `agent.mcp.connect` — the chat agent may call the tools of the manifest's remote `mcpServers`, with member data from the thread as input. A server never gets a Bonobo Senate credential, only its declared headers and sign-in. The capability and `mcpServers` require each other.
 - `agent.skills.contribute` — the chat skill catalog lists the manifest's `skills`, and the agent reads them from the plugin's read-only mount. Nothing is written into the workspace. The capability and `skills` require each other.
 - `agent.page-tools` — the chat agent may call the tools a page declares in `agent.tools` while a member has that page open in the app. The page code runs each call (see [Page agent tools](#page-agent-tools)). The capability and at least one page with `agent.tools` require each other.
+- `agent.view-context` — the plugin's pages and file views may tell the chat agent what they show (see [Agent view context](#agent-view-context)). The text goes with the member's next chat message only and is not saved in the chat. It requires at least one page or file view.
 
 ### Grant lifecycle and service upload routes
 
@@ -271,6 +272,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 // response against.
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
+
+0.27.0 adds `client.agent.setContext` and `client.agent.setContextProvider`, and the `agent.view-context` capability. See [Agent view context](#agent-view-context). An older SDK never sends the new messages, so its pages work as before.
 
 0.26.1 types more error answers. Every route can answer 500 `internal_error`, so a route's own 500 fields (such as `runId` on invoke) may be missing: check for them first. A body over a route's limit is 413 `request_too_large`. Every `rate_limited` answer has `retryAfterMs`; a plugin run that used all its API calls gets 429 `call_limit_reached`, which does not refill soon. Service uploads add `file_too_large`, `file_exists`, `upload_released`, and `upload_expired`. The runtime is unchanged.
 
@@ -584,6 +587,12 @@ A plugin frontend is trusted with the token and every datum its accepted permiss
 | host → frame | `bonobo:theme`                 | `nonce`, `theme`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | host → frame | `bonobo:token`                 | `nonce`, `requestId`, `token`, `tokenExpiresAt`, `jwt`, `jwtExpiresAt` (both optional)                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | host → frame | `bonobo:token-error`           | `nonce`, `requestId`, `message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| host → frame | `bonobo:agent-tool-call`       | `nonce`, `callId`, `toolName`, `input`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| frame → host | `bonobo:agent-tool-result`     | `nonce`, `callId`, `ok`, `output` (when `ok`) or `error`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| frame → host | `bonobo:update-model-context`  | `nonce`, `context` (`{ content?, structuredContent? }` or `null`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| frame → host | `bonobo:context-provider`      | `nonce`, `enabled`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| host → frame | `bonobo:context-request`       | `nonce`, `requestId`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| frame → host | `bonobo:context-result`        | `nonce`, `requestId`, `ok`, `context` (when `ok`) or `error`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 `bonobo_connect` (from `bonobo-plugin-sdk/frontend`) implements the frame side. Before connecting, it requires exactly one canonical HTTP(S) `parentOrigin` and one UUIDv4 `nonce` in the URL fragment. It sends ready with that nonce to the exact parent origin and retries until init or document unload. The host starts minting the session while the iframe assets load, but it does not send the token until this ready message proves the current frame loaded the bridge. Every host message must come from `window.parent`, that exact origin, and the matching nonce. The host posts only to the concrete Convex asset origin. The host owns the startup deadline.
 
@@ -712,6 +721,31 @@ const unregister = client.agent.registerTool("create_draft", async (input) => {
 - A thrown error goes back as an error with its message, cut to 2,000 characters. A call for a tool with no handler answers "This page has no tool named X".
 - The host waits 25 seconds for the page. A call only reaches the open tab that sent the chat message. Other tabs of the same page never see it.
 - The agent treats the answer as untrusted data. Do not put instructions for the agent in it.
+
+### Agent view context
+
+A page or file view can tell the app's chat agent what it shows, so the member can ask about "this email" or "this moment of the video". Add the `agent.view-context` capability. The shape follows MCP Apps `ui/update-model-context`: `{ content?: [{ type: "text", text }], structuredContent?: object }`. Only `text` blocks reach the agent for now.
+
+Push the view when it changes:
+
+```ts
+client.agent.setContext({ content: [{ type: "text", text: "Video speakers.mp4: paused at 0:12 of 0:38." }] });
+```
+
+Or answer right before each chat message, when building the text costs more than a push:
+
+```ts
+const unregister = client.agent.setContextProvider(() => ({
+	content: [{ type: "text", text: describe_open_email() }],
+}));
+```
+
+- `setContext` sends at most one value per 500 ms, always the newest one, also while the view keeps changing. It never sends a value equal to the last one sent. `null` clears it.
+- The host asks the provider only while one is set, and waits at most 2 seconds. Then it uses the last pushed value. A thrown error or a bad value sends nothing.
+- The text goes with the member's next chat message only. It is not saved in the chat, and a later message does not see it. A message sent while the page is in a hidden browser tab uses the last pushed value.
+- The model reads at most 4 KiB, so put the important part first. The host drops a value over 16 KiB as JSON.
+- The agent treats the text as data from the plugin. Never put secrets or instructions in it. The host removes control characters and text shaped like a token.
+- The member sees "shares its view" on the screen info chip and can remove it for a message.
 
 ### Theme
 

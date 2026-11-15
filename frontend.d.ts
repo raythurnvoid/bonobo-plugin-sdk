@@ -153,6 +153,16 @@ export interface BonoboTheme {
 }
 
 /**
+ * What a page or file view tells the chat agent it shows, in the MCP Apps
+ * `ui/update-model-context` shape. The host keeps only `text` blocks for now. See
+ * `client.agent.setContext`.
+ */
+export interface BonoboAgentContext {
+	content?: Array<{ type: "text"; text: string }>;
+	structuredContent?: Record<string, unknown>;
+}
+
+/**
  * The host's answer to {@link BonoboReadyMessage}: it delivers the short-lived scoped session
  * token (`plu_...`) with its plugin-session JWT, the Convex deployment URL the frame's own client
  * connects to, and the embedding context.
@@ -382,6 +392,26 @@ export interface BonoboClient {
 		 * but the model wrote it, so check it before use. Returns the unregister function.
 		 */
 		registerTool(name: string, handler: (input: unknown) => unknown): () => void;
+		/**
+		 * Tell the chat agent what this page or file view shows now. Needs the `agent.view-context`
+		 * capability; without it the host drops the value.
+		 *
+		 * The SDK sends at most one value per 500 ms, always the newest one, and never sends a value
+		 * equal to the last one sent. `null` clears it. The host sends the newest value with the member's
+		 * next chat message only, and does not save it in the chat. The model reads at most 4 KiB of
+		 * it, so put the important part first. The agent treats it as data. Never put secrets or
+		 * instructions in it. Throws a `TypeError` on a bad shape.
+		 */
+		setContext(context: BonoboAgentContext | null): void;
+		/**
+		 * Answer the host right before each chat message is sent, instead of pushing with
+		 * `setContext`. The host waits at most 2 seconds, then uses the last pushed value. A thrown
+		 * error or a bad value sends nothing. Needs `agent.view-context`, like `setContext`. Pass
+		 * `null` to remove it. Returns the unregister function.
+		 */
+		setContextProvider(
+			provider: (() => BonoboAgentContext | null | Promise<BonoboAgentContext | null>) | null,
+		): () => void;
 	};
 	/**
 	 * The frame's own authenticated Convex client. It is a `ConvexReactClient`, so a page can hand

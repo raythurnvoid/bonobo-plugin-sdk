@@ -1491,4 +1491,47 @@ describe("client.agent", () => {
 			error: "This page has no tool named create_draft",
 		});
 	});
+
+	test("sends only the newest changed view context and answers a host request from the provider", async () => {
+		// Clients from earlier tests still listen and would answer with the shared nonce.
+		const CONTEXT_NONCE = "9b2f6a3e-1c4d-4e8f-a1b2-c3d4e5f60718";
+		set_bridge_fragment(HOST_ORIGIN, CONTEXT_NONCE);
+		const postSpy = spy_on_post_message();
+		const clientPromise = bonobo_connect();
+		post_from_host({ data: make_init({ nonce: CONTEXT_NONCE }) });
+		const client = await clientPromise;
+		const sent = (type: string) =>
+			postSpy.mock.calls.map((call) => call[0] as { type?: string }).filter((message) => message.type === type);
+
+		vi.useFakeTimers();
+		client.agent.setContext({ content: [{ type: "text", text: "0:01" }] });
+		client.agent.setContext({ content: [{ type: "text", text: "0:02" }] });
+		await vi.advanceTimersByTimeAsync(500);
+		expect(sent("bonobo:update-model-context"), "a burst sends only its last value").toEqual([
+			{ type: "bonobo:update-model-context", nonce: CONTEXT_NONCE, context: { content: [{ type: "text", text: "0:02" }] } },
+		]);
+		client.agent.setContext({ content: [{ type: "text", text: "0:02" }] });
+		await vi.advanceTimersByTimeAsync(500);
+		expect(sent("bonobo:update-model-context"), "an equal value is not sent again").toHaveLength(1);
+		for (let second = 3; second <= 6; second++) {
+			client.agent.setContext({ content: [{ type: "text", text: `0:0${second}` }] });
+			await vi.advanceTimersByTimeAsync(300);
+		}
+		expect(sent("bonobo:update-model-context"), "a view that never stops changing still sends").toHaveLength(3);
+		vi.useRealTimers();
+
+		client.agent.setContextProvider(() => ({ content: [{ type: "text", text: "Inbox" }] }));
+		post_from_host({ data: { type: "bonobo:context-request", nonce: "other-nonce", requestId: "r0" } });
+		post_from_host({ data: { type: "bonobo:context-request", nonce: CONTEXT_NONCE, requestId: "r1" } });
+		await vi.waitFor(() => expect(sent("bonobo:context-result")).toHaveLength(1));
+		expect(sent("bonobo:context-result")).toEqual([
+			{
+				type: "bonobo:context-result",
+				nonce: CONTEXT_NONCE,
+				requestId: "r1",
+				ok: true,
+				context: { content: [{ type: "text", text: "Inbox" }] },
+			},
+		]);
+	});
 });

@@ -76,6 +76,9 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  * - `agent.page-tools` — while a member has one of the plugin's pages open, the chat agent beside it
  *   may call the tools that page declares in `agent.tools`. The page runs each call in the member's
  *   browser. It and page `agent` blocks require each other: neither may be declared alone.
+ * - `agent.view-context` — the plugin's pages and file views may tell the chat agent what they show
+ *   (`client.agent.setContext` / `setContextProvider`). The text goes with the member's next chat
+ *   message only and is not saved in the chat. Requires at least one page or file view.
  */
 export type BonoboCapability =
 	| "plugin.secrets.read"
@@ -96,7 +99,8 @@ export type BonoboCapability =
 	| "workspace.members.read"
 	| "agent.mcp.connect"
 	| "agent.skills.contribute"
-	| "agent.page-tools";
+	| "agent.page-tools"
+	| "agent.view-context";
 
 /**
  * Optional `navItem` of a manifest `pages[]` entry ({@link BonoboManifestPage}). Declaring it is
