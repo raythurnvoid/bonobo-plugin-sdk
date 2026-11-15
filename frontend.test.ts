@@ -341,7 +341,7 @@ describe("bonobo_connect", () => {
 		expect(invoke).toContain("runId: string;");
 		expect(invoke).toContain("pluginStatus: number;");
 		expect(invoke).toContain("output: string;");
-		expect(invoke).toContain('code: "response_too_large" | undefined;');
+		expect(invoke).toContain('errorCode: "response_too_large";');
 		expect(invoke).not.toMatch(/outputTruncated|Uint8Array|\bany\b|body: never/);
 	});
 
@@ -640,20 +640,20 @@ describe("bonobo_connect", () => {
 		// caller that the outcome was unknown; that decision belongs to the caller. The invoke
 		// route declares 500, and the generated union keeps the member.
 		fetchMock.mockResolvedValueOnce(
-			new Response(JSON.stringify({ message: "Plugin backend failed", runId: "run_failed" }), {
+			new Response(JSON.stringify({ message: "Plugin backend failed", errorCode: "internal_error", runId: "run_failed" }), {
 				status: 500,
 				headers: { "Content-Type": "application/json" },
 			}),
 		);
 		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).resolves.toEqual({
 			status: 500,
-			body: { message: "Plugin backend failed", runId: "run_failed" },
+			body: { message: "Plugin backend failed", errorCode: "internal_error", runId: "run_failed" },
 		});
 
 		const oversized = {
 			message: "Plugin backend response was too large",
+			errorCode: "response_too_large",
 			runId: "run_oversized",
-			code: "response_too_large",
 		};
 		fetchMock.mockResolvedValueOnce(
 			new Response(JSON.stringify(oversized), { status: 500, headers: { "Content-Type": "application/json" } }),
