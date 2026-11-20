@@ -12,7 +12,7 @@ Backend run (`fetch(request, env, ctx)`):
 - `outbound.fetch` — native `fetch` to third-party HTTPS origins listed in the manifest's `outboundOrigins`.
 - `plugin.data.read` — read the plugin's own document store.
 - `plugin.data.write` — create, change, and delete documents in that store. Declaring it also requires `plugin.data.read`.
-- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`. Files calls use the member's applied choices in **My file permissions**. An unreadable target answers `403`, and a missing one answers `404`. A folder list shows unreadable items with `locked: true`; a `recursive` list shows a locked item once and lists nothing under a locked folder. Runs may also list Trash and read their own Restore jobs, except scheduled runs. `files/download-urls` stays bound to the triggering upload.
+- `workspace.files.read` — the run's host token also carries `files:list` and `files:read`. A read includes the files' metadata (custom fields). Files calls use the member's applied choices in **My file permissions**. An unreadable target answers `403`, and a missing one answers `404`. A folder list shows unreadable items with `locked: true`; a `recursive` list shows a locked item once and lists nothing under a locked folder. Runs may also list Trash and read their own Restore jobs, except scheduled runs. `files/download-urls` stays bound to the triggering upload.
 - `workspace.files.own-write` — an invoke run may create or update files and folders marked for this plugin, or move them to Trash. Only exact string `plugin-name` metadata matching the installed plugin name selects an existing node. Members may edit or remove the label through ordinary metadata controls. Applied file consent and current locks still apply. Declaring it also requires `workspace.files.write`.
 - `workspace.files.restore` — a run that is not scheduled may restore items from Trash through `/api/v1/files/restore`. Items need no plugin label; applied Can edit decides. Declaring it also requires `workspace.files.write`. See [Restore](#restore).
 - `workspace.volumes.write` — write the installation's external Mounts through the five `/api/v1/volumes/*` routes. Workspace readers and the chat agent get read-only access.
@@ -20,7 +20,7 @@ Backend run (`fetch(request, env, ctx)`):
 
 Plugin page and file view (the sandboxed iframe):
 
-- `workspace.files.read` — read access to workspace files: the frame's UI token carries the `files:list`, `files:read`, and `files:download` scopes. The same capability also reaches backend runs (see the backend list above).
+- `workspace.files.read` — read access to workspace files and their metadata (custom fields): the frame's UI token carries the `files:list`, `files:read`, and `files:download` scopes. The same capability also reaches backend runs (see the backend list above).
 - `plugin.data.read` — read the plugin's own document store; the UI token carries `plugin_data:read`.
 - `plugin.data.user-write` — the plugin's UI pages and file views may create, change, and delete documents in that store as the acting member. The frame's UI token never carries a write scope: the write runs through the app's own member-attributed mutations on the frame's own Convex client (see [Using the Convex client](#using-the-convex-client)). Declaring it also requires `plugin.data.read`.
 - `ui.outbound.fetch` — the plugin's UI pages and file views may call the manifest's `uiOutboundOrigins`. These must be bare normalized HTTPS or WSS origins. It is enforced as `connect-src` in the frame's CSP, so the browser refuses other destinations. The capability and origins require each other. Backend `outboundOrigins` stays HTTPS only.
@@ -55,13 +55,13 @@ Exchange, renew, and seal-processing accept an optional persisted `requestId`. A
 
 The sealed grant then drives the upload pipeline — plain `Authorization: Bearer <psg_...>` calls (no service secret header), all POST, all requiring the `files:write` scope and the `processing` phase:
 
-| Route                                               | Body                                                                                 | Response                                                                                                                                                         |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Route                                               | Body                                                                                         | Response                                                                                                                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/api/v1/files/service-uploads/create-target`       | `{ idempotencyKey, targetKey, path, contentType, size, readOnly, nonCollaborative, force? }` | pending: `{ state: "pending", path, nodeId, uploadUrl, headers, uploadUrlExpiresAt }`; replay after confirm: `{ state: "committed", path, nodeId, actualBytes }` |
-| `/api/v1/files/service-uploads/remint`              | `{ idempotencyKey, targetKey }`                                                      | same union as create-target: a fresh asset and URL for a pending target, or `committed`                                                                         |
-| `/api/v1/files/service-uploads/finalize`            | `{ idempotencyKey, targetKey }`                                                      | `{ state: "pending" \| "committed" \| "released", path, nodeId, actualBytes \| null }`                                                                           |
-| `/api/v1/files/service-uploads/delete`              | `{ idempotencyKey, targetKey, force? }`                                                | `{ state: "deleted", paths }`                                                                                                                                    |
-| `/api/v1/files/service-uploads/archive-destination` | `{ requestId, previousRequestId?, force? }`                                            | `{ requestId, archivedNodes, complete, refused: [{ path, message, errorCode }] }`                                                                                  |
+| `/api/v1/files/service-uploads/remint`              | `{ idempotencyKey, targetKey }`                                                              | same union as create-target: a fresh asset and URL for a pending target, or `committed`                                                                          |
+| `/api/v1/files/service-uploads/finalize`            | `{ idempotencyKey, targetKey }`                                                              | `{ state: "pending" \| "committed" \| "released", path, nodeId, actualBytes \| null }`                                                                           |
+| `/api/v1/files/service-uploads/delete`              | `{ idempotencyKey, targetKey, force? }`                                                      | `{ state: "deleted", paths }`                                                                                                                                    |
+| `/api/v1/files/service-uploads/archive-destination` | `{ requestId, previousRequestId?, force? }`                                                  | `{ requestId, archivedNodes, complete, refused: [{ path, message, errorCode }] }`                                                                                |
 
 Contract highlights:
 
@@ -132,13 +132,13 @@ the token expires and API requests return 401.
 
 Mount API request and response types come from `BonoboHttpApi`:
 
-| Route | Purpose |
-| --- | --- |
-| `/api/v1/volumes/list` | List published and open copies with usage and limits. |
-| `/api/v1/volumes/stage` | Open a new staging copy and retire any previous staging copy for that mount and key. |
+| Route                        | Purpose                                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `/api/v1/volumes/list`       | List published and open copies with usage and limits.                                                    |
+| `/api/v1/volumes/stage`      | Open a new staging copy and retire any previous staging copy for that mount and key.                     |
 | `/api/v1/volumes/write-many` | Send up to 100 text files and 8 MB per call. Paths start with `/` within the copy, such as `/README.md`. |
-| `/api/v1/volumes/publish` | Swap the complete staging copy into view at once. |
-| `/api/v1/volumes/delete` | Hide a copy and queue cleanup. |
+| `/api/v1/volumes/publish`    | Swap the complete staging copy into view at once.                                                        |
+| `/api/v1/volumes/delete`     | Hide a copy and queue cleanup.                                                                           |
 
 Each copy holds at most 5,000 files and 30,000,000 bytes. Each installation holds at most 20,000
 files and 200,000,000 bytes across published and staging copies. The daily limit is 10,000 new paths
@@ -211,7 +211,11 @@ While the installation is disabled, and after an upgrade or a service account ch
 Many changes can share one notice. `data.revision` is the newest one. The body is:
 
 ```json
-{"type":"workspace.access.changed","timestamp":"2026-10-25T10:00:00.000Z","data":{"installationId":"...","revision":42}}
+{
+	"type": "workspace.access.changed",
+	"timestamp": "2026-10-25T10:00:00.000Z",
+	"data": { "installationId": "...", "revision": 42 }
+}
 ```
 
 Notices follow [Standard Webhooks](https://www.standardwebhooks.com/) v1. The headers are
@@ -273,6 +277,8 @@ type WriteOk = BonoboHttpApi["/api/v1/files/write"]["POST"]["response"][200]["bo
 type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 ```
 
+0.28.0 asks the context provider also when the agent reads the member's screen (`view_snapshot`). The provider now gets `{ detail, ref }`: `detail` is `"summary"` before a chat message and `"snapshot"` for a screen read. A provider that takes no argument works as before. See [Agent view context](#agent-view-context). 0.28.0 also types `POST /api/v1/files/query`, which reads files by one custom field. Pages, file views and runs with `workspace.files.read` may call it. See [Query files by a custom field](#query-files-by-a-custom-field).
+
 0.27.0 adds `client.agent.setContext` and `client.agent.setContextProvider`, and the `agent.view-context` capability. See [Agent view context](#agent-view-context). An older SDK never sends the new messages, so its pages work as before.
 
 0.26.1 types more error answers. Every route can answer 500 `internal_error`, so a route's own 500 fields (such as `runId` on invoke) may be missing: check for them first. A body over a route's limit is 413 `request_too_large`. Every `rate_limited` answer has `retryAfterMs`; a plugin run that used all its API calls gets 429 `call_limit_reached`, which does not refill soon. Service uploads add `file_too_large`, `file_exists`, `upload_released`, and `upload_expired`. The runtime is unchanged.
@@ -319,14 +325,14 @@ type WriteAnswer = BonoboHttpResponse<"/api/v1/files/write">;
 - The `Bonobo*Request` and `Bonobo*Response` interfaces, and `BonoboPublicDoc`, are gone. The rules that lived in their doc blocks are in the table and the notes below it. Read the shapes off `BonoboHttpApi` instead.
 - `client.fetchJson` takes a generated route path instead of any `string`, and its `body` is typed from that path. A helper that forwards `path: string` and `body: unknown` no longer compiles; make it generic over the path, the way the "UI token API surface" section shows.
 
-| Route                              | Body                                                                                                                                                                                                                                                              | Response                                                                                                                                          |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/v1/files/download-urls` | `{ fileNodeIds, expiresInSeconds?, download? }` (`expiresInSeconds`: 1–900, defaults to 900; the granted TTL is clamped below the remaining run-token lifetime with a one-second signing margin)                                                                                                 | `{ items, errors, truncated }`; each item is `{ fileNodeId, name, contentType, url, expiresAt }` (`expiresAt` in epoch ms) and each error is `{ fileNodeId, message }` |
-| `POST /api/v1/files/write`         | `{ path, content, overwrite?: "replace" \| "fail", access?: { readOnly?: boolean }, expectedParentNodeId?: string }` — editable text types use the normal content-type rules. `overwrite` defaults to `"replace"`; writing over an existing editable Markdown file replaces its content in place and keeps the same `nodeId`.  | `{ path, nodeId, contentType }`                                                                                                                   |
-| `POST /api/v1/files/touch`         | `{ paths }` — creates empty editable Markdown files, at most 8 per call, so members see where a run's outputs will land before the run fills them. Paths follow the `files/write` rule. The call is idempotent.                                                   | `{ files }`; each entry is `{ path, nodeId, created }`, and `created` is `false` when the file already existed                                     |
-| `POST /api/v1/activities/start`    | `{ title, timeoutMs }` (`title` up to 120 characters after trimming, or `""` to let the host compose one; `timeoutMs` at most `300000`, and a larger value answers `400`)                                                                                         | `{ activityId }`; a second call in the same run answers `409`                                                                                      |
-| `POST /api/v1/plugin-data/read`    | `{ collection, key }`                                                                                                                                                                                                                                             | `{ document }` — one stored document, or `null` when the key does not exist                                                                        |
-| `POST /api/v1/plugin-data/list`    | `{ collection, keyPrefix?, keyStartExclusive?, keyEndInclusive?, cursor?, limit? }`                                                                                                                                                                                | `{ documents, cursor, isDone }`                                                                                                                    |
+| Route                              | Body                                                                                                                                                                                                                                                                                                                          | Response                                                                                                                                                               |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/v1/files/download-urls` | `{ fileNodeIds, expiresInSeconds?, download? }` (`expiresInSeconds`: 1–900, defaults to 900; the granted TTL is clamped below the remaining run-token lifetime with a one-second signing margin)                                                                                                                              | `{ items, errors, truncated }`; each item is `{ fileNodeId, name, contentType, url, expiresAt }` (`expiresAt` in epoch ms) and each error is `{ fileNodeId, message }` |
+| `POST /api/v1/files/write`         | `{ path, content, overwrite?: "replace" \| "fail", access?: { readOnly?: boolean }, expectedParentNodeId?: string }` — editable text types use the normal content-type rules. `overwrite` defaults to `"replace"`; writing over an existing editable Markdown file replaces its content in place and keeps the same `nodeId`. | `{ path, nodeId, contentType }`                                                                                                                                        |
+| `POST /api/v1/files/touch`         | `{ paths }` — creates empty editable Markdown files, at most 8 per call, so members see where a run's outputs will land before the run fills them. Paths follow the `files/write` rule. The call is idempotent.                                                                                                               | `{ files }`; each entry is `{ path, nodeId, created }`, and `created` is `false` when the file already existed                                                         |
+| `POST /api/v1/activities/start`    | `{ title, timeoutMs }` (`title` up to 120 characters after trimming, or `""` to let the host compose one; `timeoutMs` at most `300000`, and a larger value answers `400`)                                                                                                                                                     | `{ activityId }`; a second call in the same run answers `409`                                                                                                          |
+| `POST /api/v1/plugin-data/read`    | `{ collection, key }`                                                                                                                                                                                                                                                                                                         | `{ document }` — one stored document, or `null` when the key does not exist                                                                                            |
+| `POST /api/v1/plugin-data/list`    | `{ collection, keyPrefix?, keyStartExclusive?, keyEndInclusive?, cursor?, limit? }`                                                                                                                                                                                                                                           | `{ documents, cursor, isDone }`                                                                                                                                        |
 
 `access: { readOnly: true }` on a `files/write` create sets the new file's local flag. It needs `workspace.files.manage-read-only`, or `files:read-only` for an API key, and ordinary Can edit. Optional top-level `force: true` passes Read-only for that request only and needs the same current grant. It never grants file access, broadens a seal or clears the flag. Anyone with Can edit may change the flag through the proper setter. Folder flags block direct list changes, not every descendant's content. Copy and Restore preserve source flags without an extra grant solely for preservation.
 
@@ -356,7 +362,7 @@ Where a run may write depends on how it started:
   - `files/write` is Markdown-only and writes siblings of the upload: `path` must be an absolute `.md` path whose parent folder equals `event.source.path`'s parent folder.
   - `files/touch` creates those same siblings empty, so users see where the outputs will land before the run fills them. Every path follows the `files/write` rule above, and a later `files/write` fills the node it already made.
 - An invoke run (`event: "ui.invoke.requested"`, started by a frame through `POST /api/v1/plugin-backend/invoke`) has no source file. With `workspace.files.own-write`, create or reuse a folder through `POST /api/v1/files/plugin-folders/ensure` (body `{ path, access?: { readOnly?: boolean } }`, response `{ nodeId, path, created }`; `readOnly` needs `workspace.files.manage-read-only`). Existing targets check their own label. Missing targets check the deepest existing folder; workspace-root creation keeps its current create rules. A new folder is a regular folder: it gets its parent's sharing. Ensure applies access only when creating the final folder. Reused folders keep their labels, locks, and sharing.
-- With `workspace.files.read`, any backend run may also call `POST /api/v1/files/list` and `POST /api/v1/files/read` (the same request and response shapes the developer API uses), using the acting person's applied file consent for this installation.
+- With `workspace.files.read`, any backend run may also call `POST /api/v1/files/list`, `POST /api/v1/files/query` and `POST /api/v1/files/read` (the same request and response shapes the developer API uses), using the acting person's applied file consent for this installation. See [Query files by a custom field](#query-files-by-a-custom-field).
 - With `workspace.files.manage-read-only`, an invoke run may change a matching node through `POST /api/v1/files/plugin-access/set` (body `{ path, access: { readOnly: boolean } }`; response `{ nodeId }`). The credential needs applied Can edit on the node. `readOnly: true` sets a plugin lock and `readOnly: false` releases it. A member lock cannot be released through this door.
 - `POST /api/v1/files/plugin-archive` (body `{ path }`, response `{ archivedNodes }`) lets an invoke run move a matching folder or file with its subtree to Trash. Every affected node must match and pass current permissions and locks before any changes happen. The call releases permitted plugin locks before moving items to Trash. A sealed service grant may move one matching file inside its destination to Trash. Upload-triggered runs cannot use ensure, access, or moves to Trash, even when their output has matching labels.
 - `activities/start` is optional: a run that never calls it stays out of the workspace activity feed. The host tracks targets from the start, and the run's outcome closes its Activity.
@@ -426,14 +432,14 @@ These public routes are also typed in `BonoboHttpApi`. Their types do not grant 
 Keep the service secret on the plugin server. Writer requests use both the current sealed `psg_`
 bearer and the `X-Bonobo-Service-Authorization` header.
 
-| Route | Writer request | Result |
-| --- | --- | --- |
-| `/api/v1/files/plugin-folders/ensure` | `{path,force?,writer:{resourceKey,rootNodeId},access?}` | Normal folder result plus `writer` with saved writer/root/folder IDs and generation |
-| `/api/v1/files/plugin-writers/inspect` | `{writerId,path,maxBytes}` | Current editable text and type, exact target/parent IDs, opaque revision, and generation |
-| `/api/v1/files/write` | Normal text fields, optional `force`, and `expectedParentNodeId`, plus `writer:{writerId,operationId,writerGeneration,sequence,expectedNodeId,expectedContentRevision,contentHash}` | Normal write result plus `receipt` |
-| `/api/v1/files/plugin-archive` | `{path,force?,writer:{writerId,operationId,writerGeneration,sequence,nodeId,expectedContentRevision?}}` | Count of items moved to Trash plus `receipt`; exactly one saved file |
-| `/api/v1/files/plugin-access/set` | `{path,access:{readOnly},writer:{writerId,operationId,writerGeneration}}` | Node ID plus exact `receipt` |
-| `/api/v1/files/plugin-writers/advance` | `{writerId,operationId,writerGeneration,nextGeneration}` | Generation receipt |
+| Route                                  | Writer request                                                                                                                                                                      | Result                                                                                   |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `/api/v1/files/plugin-folders/ensure`  | `{path,force?,writer:{resourceKey,rootNodeId},access?}`                                                                                                                             | Normal folder result plus `writer` with saved writer/root/folder IDs and generation      |
+| `/api/v1/files/plugin-writers/inspect` | `{writerId,path,maxBytes}`                                                                                                                                                          | Current editable text and type, exact target/parent IDs, opaque revision, and generation |
+| `/api/v1/files/write`                  | Normal text fields, optional `force`, and `expectedParentNodeId`, plus `writer:{writerId,operationId,writerGeneration,sequence,expectedNodeId,expectedContentRevision,contentHash}` | Normal write result plus `receipt`                                                       |
+| `/api/v1/files/plugin-archive`         | `{path,force?,writer:{writerId,operationId,writerGeneration,sequence,nodeId,expectedContentRevision?}}`                                                                             | Count of items moved to Trash plus `receipt`; exactly one saved file                     |
+| `/api/v1/files/plugin-access/set`      | `{path,access:{readOnly},writer:{writerId,operationId,writerGeneration}}`                                                                                                           | Node ID plus exact `receipt`                                                             |
+| `/api/v1/files/plugin-writers/advance` | `{writerId,operationId,writerGeneration,nextGeneration}`                                                                                                                            | Generation receipt                                                                       |
 
 The opaque resource key is 1–512 characters and belongs to the plugin. A null root ID creates an
 unused sealed root; later writers use its exact root ID. Repeating a key keeps the original IDs
@@ -591,7 +597,7 @@ A plugin frontend is trusted with the token and every datum its accepted permiss
 | frame → host | `bonobo:agent-tool-result`     | `nonce`, `callId`, `ok`, `output` (when `ok`) or `error`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | frame → host | `bonobo:update-model-context`  | `nonce`, `context` (`{ content?, structuredContent? }` or `null`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | frame → host | `bonobo:context-provider`      | `nonce`, `enabled`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| host → frame | `bonobo:context-request`       | `nonce`, `requestId`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| host → frame | `bonobo:context-request`       | `nonce`, `requestId`, `detail` (`"summary"` or `"snapshot"`; missing means `"summary"`), `ref` (string or `null`)                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | frame → host | `bonobo:context-result`        | `nonce`, `requestId`, `ok`, `context` (when `ok`) or `error`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 `bonobo_connect` (from `bonobo-plugin-sdk/frontend`) implements the frame side. Before connecting, it requires exactly one canonical HTTP(S) `parentOrigin` and one UUIDv4 `nonce` in the URL fragment. It sends ready with that nonce to the exact parent origin and retries until init or document unload. The host starts minting the session while the iframe assets load, but it does not send the token until this ready message proves the current frame loaded the bridge. Every host message must come from `window.parent`, that exact origin, and the matching nonce. The host posts only to the concrete Convex asset origin. The host owns the startup deadline.
@@ -695,11 +701,11 @@ A page can give the app's chat agent tools that run in the page. A page with `ag
 				"inputSchema": {
 					"type": "object",
 					"properties": { "subject": { "type": "string" }, "body": { "type": "string" } },
-					"required": ["subject", "body"]
-				}
-			}
-		]
-	}
+					"required": ["subject", "body"],
+				},
+			},
+		],
+	},
 }
 ```
 
@@ -742,6 +748,8 @@ const unregister = client.agent.setContextProvider(() => ({
 
 - `setContext` sends at most one value per 500 ms, always the newest one, also while the view keeps changing. It never sends a value equal to the last one sent. `null` clears it.
 - The host asks the provider only while one is set, and waits at most 2 seconds. Then it uses the last pushed value. A thrown error or a bad value sends nothing.
+- The provider gets `{ detail, ref }`. `detail: "summary"` comes right before a chat message: keep it short. `detail: "snapshot"` comes when the agent reads the member's screen with `view_snapshot`: describe what the page shows as an indented list, and give parts the agent may ask about a ref like `[ref=e3]`. `ref` is such a ref when the agent asks for that part only, else `null`. The host shows the text under the plugin's frame, marked as reported by the plugin, cuts it at 8 KiB, and renames your refs so they cannot clash with the app's own.
+- Unlike the summary, a screen read is saved with the chat, like any tool result. The host asks for it also while the page is in a hidden browser tab, so answer the `"snapshot"` request even if you never push.
 - The text goes with the member's next chat message only. It is not saved in the chat, and a later message does not see it. A message sent while the page is in a hidden browser tab uses the last pushed value.
 - The model reads at most 4 KiB, so put the important part first. The host drops a value over 16 KiB as JSON.
 - The agent treats the text as data from the plugin. Never put secrets or instructions in it. The host removes control characters and text shaped like a token.
@@ -753,12 +761,12 @@ The host's theme reaches the frame as `{ mode: "light" | "dark", tokens }`, once
 
 ```css
 .panel {
-  background: var(--color-base-1-03, #16161a);
-  color: var(--color-fg-12, #ececef);
+	background: var(--color-base-1-03, #16161a);
+	color: var(--color-fg-12, #ececef);
 
-  .dark & {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
-  }
+	.dark & {
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+	}
 }
 ```
 
@@ -768,16 +776,17 @@ The host's theme reaches the frame as `{ mode: "light" | "dark", tokens }`, once
 
 With the `workspace.files.read` capability the UI token may call:
 
-| Route                              | Scope            |
-| ---------------------------------- | ---------------- |
-| `POST /api/v1/files/list`          | `files:list`     |
-| `POST /api/v1/files/trash/list`    | `files:list`     |
-| `POST /api/v1/files/trash/areas`   | `files:list`     |
-| `POST /api/v1/files/jobs/get`      | `files:list`     |
-| `POST /api/v1/files/read`          | `files:read`     |
-| `POST /api/v1/files/download-urls` | `files:download` |
+| Route                              | Scope                       |
+| ---------------------------------- | --------------------------- |
+| `POST /api/v1/files/list`          | `files:list`                |
+| `POST /api/v1/files/query`         | `files:list` + `files:read` |
+| `POST /api/v1/files/trash/list`    | `files:list`                |
+| `POST /api/v1/files/trash/areas`   | `files:list`                |
+| `POST /api/v1/files/jobs/get`      | `files:list`                |
+| `POST /api/v1/files/read`          | `files:read`                |
+| `POST /api/v1/files/download-urls` | `files:download`            |
 
-UI tokens are rejected on `/api/v1/files/write` and `/api/v1/files/restore`. `files/jobs/get` reads only the plugin's own Restore jobs (see [Restore](#restore)).
+UI tokens are rejected on `/api/v1/files/write` and `/api/v1/files/restore`. `files/jobs/get` reads only the plugin's own Restore jobs (see [Restore](#restore)). `files/query` needs `files:list` and `files:read` together.
 
 A UI token also reaches `POST /api/v1/plugin-data/read` and `/list` (with `plugin.data.read`), `POST /api/v1/plugin-backend/invoke` (with `plugin.backend.invoke`), and the same-origin `POST /plugins-ui/session-jwt` the SDK uses itself. These routes are the whole UI surface.
 
@@ -832,13 +841,13 @@ A status the route does not declare — a gateway `503`, say — resolves like a
 
 `init` takes the rest of `RequestInit`: `signal`, extra `headers`, `keepalive`, `priority`, `cache`, `credentials`, `mode`, `referrer`, `referrerPolicy`, `integrity`. These are set after `init` is merged, so a caller's value never wins:
 
-| Field                              | Value                                                             |
-| ---------------------------------- | ----------------------------------------------------------------- |
-| `method`                           | always `POST`                                                     |
-| `body`                             | the `body` parameter, JSON-encoded                                |
-| `Authorization`                    | the session token, with one refresh-and-resend on a `401`         |
-| `Content-Type` and `Accept`        | `application/json`                                                |
-| `redirect`                         | `"error"` — following one would resend the bearer to another origin |
+| Field                       | Value                                                               |
+| --------------------------- | ------------------------------------------------------------------- |
+| `method`                    | always `POST`                                                       |
+| `body`                      | the `body` parameter, JSON-encoded                                  |
+| `Authorization`             | the session token, with one refresh-and-resend on a `401`           |
+| `Content-Type` and `Accept` | `application/json`                                                  |
+| `redirect`                  | `"error"` — following one would resend the bearer to another origin |
 
 `method`, `body` and `redirect` are removed from `init`'s type as well. The three headers cannot be: header names are case-insensitive, so the type cannot name them, and setting them last is the whole enforcement.
 
@@ -855,6 +864,31 @@ token); the request itself also charges the route's principal bucket once. One i
 Duplicate file IDs are rejected with `400` before they consume route capacity or start file work.
 
 Pagination of `/api/v1/files/list` (`{ items, cursor, isDone }`): `contentTypePrefixes` takes up to 8 whole families like `image/` or exact types like `image/png`, and needs `recursive: true` and no `extension`. Any other value, like `image` or `image/png;charset=utf-8`, answers `400`; `image/p` means the exact type `image/p`, not a prefix. The server reads these types from indexes, so a page is full unless the access check drops files you may not read (only with `recursive`; a plain folder list returns them with `locked: true`). A page can still come back short while `isDone` is `false` — keep passing `cursor` until `isDone` is `true` or you have enough items. `scanLimit` is ignored. `order: "desc"` lists a folder's direct children in reverse name order, with locked children in their place; it needs a list without `recursive` (else `400`), and a cursor works only with the order it was made for (`"asc"` is the same as no order). List with `limit: 100` and `kind: "file"`; bound the requests advanced per user action, buffer overflow items for the next action, and retry a `429` on the same cursor. `path` must be a folder: a missing folder or one in Trash answers `404` `{ "message": "Folder not found: <path>", "errorCode": "not_found" }` on any page, a folder you cannot open (or any path below it) answers `403` `{ "message": "Permission denied: <path>", "errorCode": "permission_denied" }`, and a file answers `400` `invalid_input`. The same rule holds for `files/read`: a file you cannot open is `403`, a missing one is `404`. The `cursor` is sealed and opaque. Send it back unchanged with the same body; an edited cursor, one from another request, or one from before a host update answers `400` `{ "message": "This list cursor changed. Start a new page.", "errorCode": "invalid_cursor" }`. Any Move or Rename in the workspace also ends open cursors, so this is a normal answer. Check `body.errorCode === "invalid_cursor"`, not the message, start again with `cursor: null`, and skip the ids you already showed.
+
+#### Query files by a custom field
+
+`POST /api/v1/files/query` reads files by one custom field, without listing a folder and reading every file. A field is qualified: `metadata.status` for a field set in the app, `frontmatter.due` for a field in a Markdown file's frontmatter. Reading files includes reading their fields, so the route needs only `workspace.files.read`. Pages, file views and backend runs (also scheduled runs) may call it.
+
+```ts
+const res = await client.fetchJson("/api/v1/files/query", {
+	mode: "folder",
+	path: "/projects",
+	field: "metadata.status",
+	match: { eq: "open" },
+	fields: ["metadata.owner", "metadata.due"],
+	limit: 50,
+});
+if (res.status === 200 && res.body) {
+	for (const item of res.body.items) console.log(item.path, item.fields["metadata.owner"]?.value);
+}
+```
+
+- `mode: "folder"` reads the direct children of `path` (default `/`) that have the field, in value order. `match` is `{ eq }` or `{ prefix }`; without `match`, or with `{ exists: true }`, every child with a value comes back. `order` is `"asc"` or `"desc"`, and `kind` is `"file"` (default) or `"folder"`. A child with its own sharing rules (a restricted file or folder) is left out. Text sorts without case and accents. Numbers sort by size only for whole numbers that are not negative. A `prefix` must not end in a digit: add the next character (`2026-`, not `2026`). A folder page never returns a file twice.
+- `mode: "search"` searches `path` and every folder below it. `match` is required: `{ eq }`, `{ prefix }`, `{ exists: true }` or `{ range: { gte, gt, lte, lt } }` with numbers or ISO dates. `prefix` and `range` search the whole workspace: leave out `path`, and the person must have chosen Whole workspace for this plugin (else `403`). Search mode has its own order and takes no `order` or `kind`. It also counts against a per-person limit of 60 search pages per minute, shared by every plugin and key of that person (the app's own search box has a separate limit). `prefix` and `range` can return a file again on a later page, so dedupe by `nodeId` when you join pages. Any save in the workspace ends open search cursors (`400 invalid_cursor`).
+- `fields` names up to 12 more fields to return for each item. Each comes back as `fields[name] = { value, isPreview }`. `value` is `null` when the file has no such field. `isPreview` is `true` when a long value was cut, or when a list field shows only its first value.
+- Each item has `path`, `name`, `nodeId`, `kind`, `contentType`, `updatedAt`, `status`, `size` and `readOnly`, like a `files/list` item. The route returns only items the caller can open, so it has no `locked` items.
+- Paging: `limit` is at most 50. A page can be short, or even empty, while `isDone` is `false`. Keep sending `cursor` until `isDone` is `true`. A cursor works only for the same caller and the same request fields; `limit` and `fields` may change between pages. `400 invalid_cursor` means start again from the first page.
+- Errors: `400 invalid_input`, `403 permission_denied` (the person did not choose this folder for the plugin, or the caller lacks `files:list`), `404 not_found`, `429 rate_limited` with `retryAfterMs`, and `503 listing_busy` or `503 search_unavailable` (retry the same page later).
 
 Rate limits: each API key gets 120 requests per minute per route, with a burst of 20. Plugin UI sessions for the same user and installation in one workspace share one budget per route. The budget uses four parts of five tokens. A capacity refusal happens only when every part has less than one token. After a full drain, the first four tokens refill in about two seconds; all 20 refill in 10 seconds. A `429` body has `retryAfterMs`: wait that long plus a small random delay, then send the same body and cursor again. Parallel calls can still use up the server's write retries and get an early `429` with `retryAfterMs: 1000`. Keep about 4 calls in flight per route. 429 `call_limit_reached` (no `retryAfterMs`) does not clear inside the same run, so stop.
 
@@ -955,14 +989,14 @@ Three rules for a plugin that uses it:
 
 What each refusal means, replacing the old `_nay.name` vocabulary:
 
-| Answer                | Meaning                                                                                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `409`                 | The serialization lock is held. `body.retryAfterMs` says how long to wait.                                                                                                            |
-| `429`                 | A rate limit. `rate_limited` always carries the wait in `body.retryAfterMs`; `call_limit_reached` (the plugin API call limit) has none, so check `errorCode` first.                       |
-| `401` / `403`         | The server answers the same for a lapsed session and a revoked plugin. `client.session.expiresAt()` versus `Date.now()` is the whole difference: past it, reload; before it, the frame lost access. |
-| `400` / `404` / `413` | The request was refused — an unknown endpoint, a missing `serializationKey`, a body too large. `body.message` says why.                                                                |
+| Answer                | Meaning                                                                                                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `409`                 | The serialization lock is held. `body.retryAfterMs` says how long to wait.                                                                                                                                                                                                                                   |
+| `429`                 | A rate limit. `rate_limited` always carries the wait in `body.retryAfterMs`; `call_limit_reached` (the plugin API call limit) has none, so check `errorCode` first.                                                                                                                                          |
+| `401` / `403`         | The server answers the same for a lapsed session and a revoked plugin. `client.session.expiresAt()` versus `Date.now()` is the whole difference: past it, reload; before it, the frame lost access.                                                                                                          |
+| `400` / `404` / `413` | The request was refused — an unknown endpoint, a missing `serializationKey`, a body too large. `body.message` says why.                                                                                                                                                                                      |
 | `500`                 | The backend did not run, or the host failed. It resolves like any other answer, with `body?.message` and `body?.runId`. So does any other `5xx`, and so does an answer whose body will not parse (`body` is `null` then). The outcome is unknown in all of these, so only retry work that is safe to repeat. |
-| a rejection           | No answer at all: a network failure, an aborted `signal`, or a session the host will not renew. Same rule — the outcome is unknown.                                                    |
+| a rejection           | No answer at all: a network failure, an aborted `signal`, or a session the host will not renew. Same rule — the outcome is unknown.                                                                                                                                                                          |
 
 ### Frontend page example
 

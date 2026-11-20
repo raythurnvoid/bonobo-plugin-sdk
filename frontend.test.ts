@@ -640,10 +640,13 @@ describe("bonobo_connect", () => {
 		// caller that the outcome was unknown; that decision belongs to the caller. The invoke
 		// route declares 500, and the generated union keeps the member.
 		fetchMock.mockResolvedValueOnce(
-			new Response(JSON.stringify({ message: "Plugin backend failed", errorCode: "internal_error", runId: "run_failed" }), {
-				status: 500,
-				headers: { "Content-Type": "application/json" },
-			}),
+			new Response(
+				JSON.stringify({ message: "Plugin backend failed", errorCode: "internal_error", runId: "run_failed" }),
+				{
+					status: 500,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
 		);
 		await expect(client.fetchJson("/api/v1/plugin-backend/invoke", { endpoint: "refresh" })).resolves.toEqual({
 			status: 500,
@@ -1459,9 +1462,17 @@ describe("client.agent", () => {
 		});
 
 		post_from_host({
-			data: { type: "bonobo:agent-tool-call", nonce: AGENT_NONCE, callId: "c1", toolName: "create_draft", input: { a: 1 } },
+			data: {
+				type: "bonobo:agent-tool-call",
+				nonce: AGENT_NONCE,
+				callId: "c1",
+				toolName: "create_draft",
+				input: { a: 1 },
+			},
 		});
-		post_from_host({ data: { type: "bonobo:agent-tool-call", nonce: AGENT_NONCE, callId: "c2", toolName: "fail", input: {} } });
+		post_from_host({
+			data: { type: "bonobo:agent-tool-call", nonce: AGENT_NONCE, callId: "c2", toolName: "fail", input: {} },
+		});
 		// The nonce proves the call came from this frame's host.
 		post_from_host({
 			data: { type: "bonobo:agent-tool-call", nonce: "other-nonce", callId: "c3", toolName: "fail", input: {} },
@@ -1508,7 +1519,11 @@ describe("client.agent", () => {
 		client.agent.setContext({ content: [{ type: "text", text: "0:02" }] });
 		await vi.advanceTimersByTimeAsync(500);
 		expect(sent("bonobo:update-model-context"), "a burst sends only its last value").toEqual([
-			{ type: "bonobo:update-model-context", nonce: CONTEXT_NONCE, context: { content: [{ type: "text", text: "0:02" }] } },
+			{
+				type: "bonobo:update-model-context",
+				nonce: CONTEXT_NONCE,
+				context: { content: [{ type: "text", text: "0:02" }] },
+			},
 		]);
 		client.agent.setContext({ content: [{ type: "text", text: "0:02" }] });
 		await vi.advanceTimersByTimeAsync(500);
@@ -1520,10 +1535,15 @@ describe("client.agent", () => {
 		expect(sent("bonobo:update-model-context"), "a view that never stops changing still sends").toHaveLength(3);
 		vi.useRealTimers();
 
-		client.agent.setContextProvider(() => ({ content: [{ type: "text", text: "Inbox" }] }));
+		const provider = vi.fn(() => ({ content: [{ type: "text" as const, text: "Inbox" }] }));
+		client.agent.setContextProvider(provider);
 		post_from_host({ data: { type: "bonobo:context-request", nonce: "other-nonce", requestId: "r0" } });
 		post_from_host({ data: { type: "bonobo:context-request", nonce: CONTEXT_NONCE, requestId: "r1" } });
 		await vi.waitFor(() => expect(sent("bonobo:context-result")).toHaveLength(1));
+		expect(provider, "an older host's request reads as a summary").toHaveBeenLastCalledWith({
+			detail: "summary",
+			ref: null,
+		});
 		expect(sent("bonobo:context-result")).toEqual([
 			{
 				type: "bonobo:context-result",
@@ -1533,5 +1553,14 @@ describe("client.agent", () => {
 				context: { content: [{ type: "text", text: "Inbox" }] },
 			},
 		]);
+
+		post_from_host({
+			data: { type: "bonobo:context-request", nonce: CONTEXT_NONCE, requestId: "r2", detail: "snapshot", ref: "e3" },
+		});
+		await vi.waitFor(() => expect(sent("bonobo:context-result")).toHaveLength(2));
+		expect(provider, "the agent's screen read reaches the provider with its ref").toHaveBeenLastCalledWith({
+			detail: "snapshot",
+			ref: "e3",
+		});
 	});
 });

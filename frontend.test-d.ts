@@ -148,6 +148,20 @@ export async function http_type_check() {
 	// @ts-expect-error the host serves no such route.
 	void client.fetchJson("/api/v1/nope", {});
 
+	const queried = await client.fetchJson("/api/v1/files/query", {
+		mode: "folder",
+		path: "/projects",
+		field: "metadata.status",
+		match: { eq: "open" },
+		fields: ["metadata.owner"],
+	});
+	if (queried.status === 200) {
+		const owner: string | number | boolean | null | undefined = queried.body?.items[0]?.fields["metadata.owner"]?.value;
+		void owner;
+	}
+	// @ts-expect-error a query needs the field it reads by.
+	void client.fetchJson("/api/v1/files/query", { mode: "folder" });
+
 	const read: Response = await client.fetchRaw("/api/v1/files/read", { path: "/notes.md", cursor: null });
 	const nextCursor: string | null = read.headers.get("X-File-Next-Cursor");
 	void nextCursor;

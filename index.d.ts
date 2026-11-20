@@ -12,11 +12,11 @@ export type { ExportedHandler, ExecutionContext, Request, Response } from "@clou
  *
  * - `plugin.secrets.read` — the backend run may call `env.BONOBO.secrets.get(name)`.
  * - `outbound.fetch` — the backend run may `fetch` the manifest's `outboundOrigins`.
- * - `workspace.files.read` — the plugin's UI pages and file views may read workspace files, and so
- *   may backend runs. It puts the `files:list`, `files:read`, and `files:download` scopes on the
- *   frame's UI token and `files:list` + `files:read` on a backend run's token. A run always reads
- *   with the acting member's visibility, so it can never see a restricted folder that member
- *   cannot open.
+ * - `workspace.files.read` — the plugin's UI pages and file views may read workspace files and
+ *   their metadata (custom fields), and so may backend runs. It puts the `files:list`,
+ *   `files:read`, and `files:download` scopes on the frame's UI token and `files:list` +
+ *   `files:read` on a backend run's token. A run always reads with the acting member's
+ *   visibility, so it can never see a restricted folder that member cannot open.
  * - `workspace.files.write` — authorizes `files:write` on a sealed processing-phase service grant,
  *   capped by an exact destination path prefix. It never reaches the frame. The interactive
  *   exchange never mints that scope; the service gets it through the seal-processing route. A

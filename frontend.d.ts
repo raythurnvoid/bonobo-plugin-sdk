@@ -163,6 +163,19 @@ export interface BonoboAgentContext {
 }
 
 /**
+ * Why the host asks the context provider.
+ *
+ * - `detail: "summary"`: the member is about to send a chat message. Keep it short.
+ * - `detail: "snapshot"`: the agent reads the member's screen (`view_snapshot`). Describe what the
+ *   page shows in more detail, as an indented list. `ref` is a ref from an earlier answer (like
+ *   `e3`) when the agent asks for that part only, else `null`.
+ */
+export interface BonoboAgentContextRequest {
+	detail: "summary" | "snapshot";
+	ref: string | null;
+}
+
+/**
  * The host's answer to {@link BonoboReadyMessage}: it delivers the short-lived scoped session
  * token (`plu_...`) with its plugin-session JWT, the Convex deployment URL the frame's own client
  * connects to, and the embedding context.
@@ -244,8 +257,8 @@ export interface BonoboTokenErrorMessage {
  * The connected plugin frontend client resolved by {@link bonobo_connect}, for plugin pages
  * and plugin file views alike. With the `workspace.files.read` capability the UI token carries
  * the `files:list`, `files:read`, and `files:download` scopes for `POST /api/v1/files/list`,
- * `POST /api/v1/files/read`, and `POST /api/v1/files/download-urls`. UI tokens are always
- * rejected on `/api/v1/files/write`.
+ * `POST /api/v1/files/query`, `POST /api/v1/files/read`, and `POST /api/v1/files/download-urls`.
+ * UI tokens are always rejected on `/api/v1/files/write`.
  */
 export interface BonoboClient {
 	/**
@@ -329,9 +342,8 @@ export interface BonoboClient {
 	 * last is the whole enforcement.
 	 *
 	 * That table also holds the routes only the plugin's backend run may call. A UI token reaches
-	 * seven: the three file routes named above, `/api/v1/plugin-data/read` and `/list`,
-	 * `/api/v1/plugin-backend/invoke`, and `/plugins-ui/session-jwt`. Typing accepts the rest, and
-	 * the host still answers `403`. The README's "UI token API surface" section is the list.
+	 * only the routes in the README's "UI token API surface" table. Typing accepts the rest, and
+	 * the host still answers `403`.
 	 *
 	 * Pagination: `/api/v1/files/list` reads `contentTypePrefixes` (whole families like `image/` or
 	 * exact types like `image/png`, with `recursive: true` and no `extension`) from indexes and
@@ -405,12 +417,15 @@ export interface BonoboClient {
 		setContext(context: BonoboAgentContext | null): void;
 		/**
 		 * Answer the host right before each chat message is sent, instead of pushing with
-		 * `setContext`. The host waits at most 2 seconds, then uses the last pushed value. A thrown
-		 * error or a bad value sends nothing. Needs `agent.view-context`, like `setContext`. Pass
-		 * `null` to remove it. Returns the unregister function.
+		 * `setContext`, and when the agent reads the member's screen. The request says which one (see
+		 * {@link BonoboAgentContextRequest}). The host waits at most 2 seconds, then uses the last
+		 * pushed value. A thrown error or a bad value sends nothing. Needs `agent.view-context`, like
+		 * `setContext`. Pass `null` to remove it. Returns the unregister function.
 		 */
 		setContextProvider(
-			provider: (() => BonoboAgentContext | null | Promise<BonoboAgentContext | null>) | null,
+			provider:
+				| ((request: BonoboAgentContextRequest) => BonoboAgentContext | null | Promise<BonoboAgentContext | null>)
+				| null,
 		): () => void;
 	};
 	/**

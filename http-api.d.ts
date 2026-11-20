@@ -691,7 +691,7 @@ export type BonoboHttpApi = {
 						})[];
 						jobs: ({
 							kind: "copy" | "move" | "restore" | "delete";
-							status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+							status: "running" | "stopping" | "partial" | "failed" | "succeeded" | "queued" | "canceled" | "timed_out" | "awaiting_input";
 							errorMessage: string | null;
 							progress: {
 								failed: number;
@@ -722,7 +722,7 @@ export type BonoboHttpApi = {
 							hasMoreItems: boolean;
 						} | {
 							kind: "restore";
-							status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+							status: "running" | "stopping" | "partial" | "failed" | "succeeded" | "queued" | "canceled" | "timed_out" | "awaiting_input";
 							errorMessage: string | null;
 							progress: {
 								failed: number;
@@ -909,379 +909,6 @@ export type BonoboHttpApi = {
 			};
 		};
 	};
-	"/api/v1/files/trash/list": {
-		POST: {
-			pathParams: never;
-			searchParams: never;
-			headers: {
-				[x: string]: string;
-			};
-			body: {
-				areaNodeId?: string | null | undefined;
-				folderNodeId?: string | undefined;
-				cursor?: string | null | undefined;
-				limit?: number | undefined;
-			};
-			response: {
-				200: {
-					headers: {
-						"Cache-Control": "no-store";
-					};
-					body: {
-						items: {
-							path: string;
-							name: string;
-							kind: "file" | "folder";
-							nodeId: import("convex/values").GenericId<"files_nodes">;
-							contentType: string | null;
-							updatedAt: number;
-							size: number | null;
-							locked: boolean;
-							archiveOperationId: string;
-							operationAt: number;
-							changedBy: import("convex/values").GenericId<"users"> | "SYSTEM" | null;
-							top: boolean;
-						}[];
-						cursor: string | null;
-						isDone: boolean;
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-						errorCode: "invalid_input";
-					} | {
-						message: string;
-						errorCode: "invalid_cursor";
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-						errorCode: "permission_denied";
-					} | {
-						message: "Permission denied" | "Scheduled plugin runs cannot use Trash yet.";
-						errorCode: "permission_denied";
-						retryAfterMs?: undefined;
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Unauthorized" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed";
-						errorCode: "unauthenticated";
-						retryAfterMs?: undefined;
-					};
-				};
-				404: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-						errorCode: "not_found";
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Rate limit exceeded";
-						errorCode: "rate_limited";
-						retryAfterMs: number;
-					} | {
-						message: "Plugin API call limit exceeded";
-						errorCode: "call_limit_reached";
-						retryAfterMs?: undefined;
-					};
-				};
-				500: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-						errorCode: "internal_error";
-					};
-				};
-			};
-		};
-	};
-	"/api/v1/files/trash/areas": {
-		POST: {
-			pathParams: never;
-			searchParams: never;
-			headers: {
-				[x: string]: string;
-			};
-			body: {
-				cursor?: string | null | undefined;
-				limit?: number | undefined;
-			};
-			response: {
-				200: {
-					headers: {
-						"Cache-Control": "no-store";
-					};
-					body: {
-						areas: ({
-							areaNodeId: string | null;
-							path: string;
-						} | {
-							areaNodeId: null;
-							path: string;
-						})[];
-						cursor: string | null;
-						isDone: boolean;
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-						errorCode: "invalid_input";
-					} | {
-						message: string;
-						errorCode: "invalid_cursor";
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Permission denied" | "Scheduled plugin runs cannot use Trash yet.";
-						errorCode: "permission_denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: string;
-						errorCode: "permission_denied";
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Unauthorized" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed";
-						errorCode: "unauthenticated";
-						retryAfterMs?: undefined;
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Rate limit exceeded";
-						errorCode: "rate_limited";
-						retryAfterMs: number;
-					} | {
-						message: "Plugin API call limit exceeded";
-						errorCode: "call_limit_reached";
-						retryAfterMs?: undefined;
-					};
-				};
-				500: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-						errorCode: "internal_error";
-					};
-				};
-			};
-		};
-	};
-	"/api/v1/files/jobs/get": {
-		POST: {
-			pathParams: never;
-			searchParams: never;
-			headers: {
-				[x: string]: string;
-			};
-			body: {
-				jobId: string;
-				cursor?: string | null | undefined;
-			};
-			response: {
-				200: {
-					headers: {
-						"Cache-Control": "no-store";
-					};
-					body: {
-						jobId: import("convex/values").GenericId<"activities">;
-						kind: "copy" | "move";
-						status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
-						progress: {
-							failed: number;
-							canceled: number;
-							completed: number;
-							blocked: number;
-							skipped: number;
-							unit: "items" | "files";
-							discovered: number;
-							total: number | null;
-						} | undefined;
-						errorMessage: string | null;
-						refused: {
-							path: string;
-							errorCode: "permission_denied" | "not_found" | "read_only" | "path_busy" | "move_busy" | "conflict";
-							message: string;
-						}[];
-						renamed: {
-							path: string;
-							newPath: string;
-						}[];
-						refusedCursor: string | null;
-					} | {
-						jobId: import("convex/values").GenericId<"activities">;
-						kind: "restore" | "delete";
-						status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
-						progress: {
-							failed: number;
-							canceled: number;
-							completed: number;
-							blocked: number;
-							skipped: number;
-							unit: "items" | "files";
-							discovered: number;
-							total: number | null;
-						} | undefined;
-						errorMessage: string | null;
-						refused: {
-							path: string | null;
-							message: string;
-							errorCode: "permission_denied" | "not_found" | "read_only" | "path_busy" | "move_busy" | "conflict";
-						}[];
-						renamed: {
-							path: string;
-							newPath: string;
-						}[];
-						refusedCursor: string | null;
-					} | {
-						refusedCursor: string | null;
-						jobId: import("convex/values").GenericId<"activities">;
-						kind: "restore";
-						status: "running" | "stopping" | "partial" | "succeeded" | "failed" | "queued" | "canceled" | "timed_out" | "awaiting_input";
-						progress: {
-							failed: number;
-							canceled: number;
-							completed: number;
-							blocked: number;
-							skipped: number;
-							unit: "items" | "files";
-							discovered: number;
-							total: number | null;
-						} | undefined;
-						errorMessage: string | null;
-						refused: ({
-							path: string | null;
-							errorCode: "permission_denied" | "not_found" | "read_only" | "path_busy" | "move_busy" | "conflict";
-							message: string;
-							nodeId: string;
-						} | {
-							path: null;
-							message: string;
-							errorCode: "permission_denied" | "not_found" | "read_only" | "path_busy" | "move_busy" | "conflict";
-						} | {
-							path: string | null;
-							message: string;
-							errorCode: "conflict";
-						})[];
-						renamed: {
-							path: string | null;
-							newPath: string | null;
-						}[];
-						message?: undefined;
-						errorCode?: undefined;
-					};
-				};
-				400: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-						errorCode: "invalid_input";
-					} | {
-						message: "This job cursor changed. Start a new page.";
-						errorCode: "invalid_cursor";
-					};
-				};
-				403: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Permission denied" | "Scheduled plugin runs cannot use Trash yet.";
-						errorCode: "permission_denied";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Permission denied";
-						errorCode: "permission_denied";
-					};
-				};
-				401: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Unauthenticated" | "Unauthorized" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed";
-						errorCode: "unauthenticated";
-						retryAfterMs?: undefined;
-					} | {
-						message: "Unauthenticated";
-						errorCode: "unauthenticated";
-					};
-				};
-				404: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Job not found";
-						errorCode: "not_found";
-					};
-				};
-				429: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: "Rate limit exceeded";
-						errorCode: "rate_limited";
-						retryAfterMs: number;
-					} | {
-						message: "Plugin API call limit exceeded";
-						errorCode: "call_limit_reached";
-						retryAfterMs?: undefined;
-					};
-				};
-				500: {
-					headers: {
-						[x: string]: string;
-					};
-					body: {
-						message: string;
-						errorCode: "internal_error";
-					};
-				};
-			};
-		};
-	};
 	"/api/v1/files/list": {
 		POST: {
 			pathParams: never;
@@ -1313,7 +940,7 @@ export type BonoboHttpApi = {
 							nodeId: import("convex/values").GenericId<"files_nodes">;
 							contentType: string | null;
 							updatedAt: number;
-							status: "ready" | "pending" | null;
+							status: "pending" | "ready" | null;
 							size: number | null;
 							locked: boolean;
 							readOnly: boolean | null;
@@ -1386,6 +1013,15 @@ export type BonoboHttpApi = {
 						message: "Plugin API call limit exceeded";
 						errorCode: "call_limit_reached";
 						retryAfterMs?: undefined;
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "listing_busy";
 					};
 				};
 				500: {
@@ -1515,6 +1151,525 @@ export type BonoboHttpApi = {
 			};
 		};
 	};
+	"/api/v1/files/query": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				mode: "search" | "folder";
+				field: string;
+				path?: string | undefined;
+				match?: {
+					eq: string | number | boolean;
+				} | {
+					prefix: string;
+				} | {
+					exists: true;
+				} | {
+					range: {
+						gte?: string | number | undefined;
+						gt?: string | number | undefined;
+						lte?: string | number | undefined;
+						lt?: string | number | undefined;
+					};
+				} | undefined;
+				order?: "asc" | "desc" | undefined;
+				kind?: "file" | "folder" | undefined;
+				fields?: string[] | undefined;
+				limit?: number | undefined;
+				cursor?: string | null | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						items: {
+							path: string;
+							name: string;
+							nodeId: import("convex/values").GenericId<"files_nodes">;
+							kind: "file" | "folder";
+							contentType: string | null;
+							updatedAt: number;
+							status: "pending" | "ready" | null;
+							size: number | null;
+							readOnly: boolean;
+							fields: {
+								[x: string]: {
+									value: string | number | boolean | null;
+									isPreview: boolean;
+								};
+							};
+						}[];
+						cursor: string | null;
+						isDone: boolean;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "invalid_input";
+					} | {
+						message: string;
+						errorCode: "invalid_cursor";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied" | "Scheduled plugin runs cannot use Trash yet.";
+						errorCode: "permission_denied";
+						retryAfterMs?: undefined;
+					} | {
+						message: string;
+						errorCode: "permission_denied";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed";
+						errorCode: "unauthenticated";
+						retryAfterMs?: undefined;
+					} | {
+						message: string;
+						errorCode: "unauthenticated";
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "not_found";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Plugin API call limit exceeded";
+						errorCode: "call_limit_reached";
+						retryAfterMs?: undefined;
+					} | {
+						retryAfterMs: number;
+						message: string;
+						errorCode: "rate_limited";
+						items?: undefined;
+						cursor?: undefined;
+						isDone?: undefined;
+					};
+				};
+				503: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "listing_busy";
+					} | {
+						message: string;
+						errorCode: "search_unavailable";
+					};
+				};
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "internal_error";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/files/trash/list": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				areaNodeId?: string | null | undefined;
+				folderNodeId?: string | undefined;
+				cursor?: string | null | undefined;
+				limit?: number | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						items: {
+							path: string;
+							name: string;
+							kind: "file" | "folder";
+							nodeId: import("convex/values").GenericId<"files_nodes">;
+							contentType: string | null;
+							updatedAt: number;
+							size: number | null;
+							locked: boolean;
+							archiveOperationId: string;
+							operationAt: number;
+							changedBy: import("convex/values").GenericId<"users"> | "SYSTEM" | null;
+							top: boolean;
+						}[];
+						cursor: string | null;
+						isDone: boolean;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "invalid_input";
+					} | {
+						message: string;
+						errorCode: "invalid_cursor";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied" | "Scheduled plugin runs cannot use Trash yet.";
+						errorCode: "permission_denied";
+						retryAfterMs?: undefined;
+					} | {
+						message: string;
+						errorCode: "permission_denied";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed";
+						errorCode: "unauthenticated";
+						retryAfterMs?: undefined;
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "not_found";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Plugin API call limit exceeded";
+						errorCode: "call_limit_reached";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						errorCode: "rate_limited";
+						retryAfterMs: number;
+					};
+				};
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "internal_error";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/files/trash/areas": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				cursor?: string | null | undefined;
+				limit?: number | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						areas: ({
+							areaNodeId: string | null;
+							path: string;
+						} | {
+							areaNodeId: null;
+							path: string;
+						})[];
+						cursor: string | null;
+						isDone: boolean;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "invalid_input";
+					} | {
+						message: string;
+						errorCode: "invalid_cursor";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied" | "Scheduled plugin runs cannot use Trash yet.";
+						errorCode: "permission_denied";
+						retryAfterMs?: undefined;
+					} | {
+						message: string;
+						errorCode: "permission_denied";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed";
+						errorCode: "unauthenticated";
+						retryAfterMs?: undefined;
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Plugin API call limit exceeded";
+						errorCode: "call_limit_reached";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						errorCode: "rate_limited";
+						retryAfterMs: number;
+					};
+				};
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "internal_error";
+					};
+				};
+			};
+		};
+	};
+	"/api/v1/files/jobs/get": {
+		POST: {
+			pathParams: never;
+			searchParams: never;
+			headers: {
+				[x: string]: string;
+			};
+			body: {
+				jobId: string;
+				cursor?: string | null | undefined;
+			};
+			response: {
+				200: {
+					headers: {
+						"Cache-Control": "no-store";
+					};
+					body: {
+						jobId: import("convex/values").GenericId<"activities">;
+						kind: "copy" | "move";
+						status: "running" | "stopping" | "partial" | "failed" | "succeeded" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+						progress: {
+							failed: number;
+							canceled: number;
+							completed: number;
+							blocked: number;
+							skipped: number;
+							unit: "items" | "files";
+							discovered: number;
+							total: number | null;
+						} | undefined;
+						errorMessage: string | null;
+						refused: {
+							path: string;
+							errorCode: "permission_denied" | "not_found" | "read_only" | "path_busy" | "move_busy" | "conflict";
+							message: string;
+						}[];
+						renamed: {
+							path: string;
+							newPath: string;
+						}[];
+						refusedCursor: string | null;
+					} | {
+						jobId: import("convex/values").GenericId<"activities">;
+						kind: "restore" | "delete";
+						status: "running" | "stopping" | "partial" | "failed" | "succeeded" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+						progress: {
+							failed: number;
+							canceled: number;
+							completed: number;
+							blocked: number;
+							skipped: number;
+							unit: "items" | "files";
+							discovered: number;
+							total: number | null;
+						} | undefined;
+						errorMessage: string | null;
+						refused: {
+							path: string | null;
+							message: string;
+							errorCode: "permission_denied" | "not_found" | "read_only" | "path_busy" | "move_busy" | "conflict";
+						}[];
+						renamed: {
+							path: string;
+							newPath: string;
+						}[];
+						refusedCursor: string | null;
+					} | {
+						refusedCursor: string | null;
+						jobId: import("convex/values").GenericId<"activities">;
+						kind: "restore";
+						status: "running" | "stopping" | "partial" | "failed" | "succeeded" | "queued" | "canceled" | "timed_out" | "awaiting_input";
+						progress: {
+							failed: number;
+							canceled: number;
+							completed: number;
+							blocked: number;
+							skipped: number;
+							unit: "items" | "files";
+							discovered: number;
+							total: number | null;
+						} | undefined;
+						errorMessage: string | null;
+						refused: ({
+							path: string | null;
+							errorCode: "permission_denied" | "not_found" | "read_only" | "path_busy" | "move_busy" | "conflict";
+							message: string;
+							nodeId: string;
+						} | {
+							path: null;
+							message: string;
+							errorCode: "permission_denied" | "not_found" | "read_only" | "path_busy" | "move_busy" | "conflict";
+						} | {
+							path: string | null;
+							message: string;
+							errorCode: "conflict";
+						})[];
+						renamed: {
+							path: string | null;
+							newPath: string | null;
+						}[];
+						message?: undefined;
+						errorCode?: undefined;
+					};
+				};
+				400: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "invalid_input";
+					} | {
+						message: "This job cursor changed. Start a new page.";
+						errorCode: "invalid_cursor";
+					};
+				};
+				403: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Permission denied" | "Scheduled plugin runs cannot use Trash yet.";
+						errorCode: "permission_denied";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Permission denied";
+						errorCode: "permission_denied";
+					};
+				};
+				401: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Unauthenticated" | "Unauthorized" | "The scheduled user must grant access again" | "The scheduled user is not an active workspace member" | "Choose a scheduled user with their own permission grant" | "This schedule is not available" | "The scheduled assignment changed";
+						errorCode: "unauthenticated";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Unauthenticated";
+						errorCode: "unauthenticated";
+					};
+				};
+				404: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Job not found";
+						errorCode: "not_found";
+					};
+				};
+				429: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: "Plugin API call limit exceeded";
+						errorCode: "call_limit_reached";
+						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						errorCode: "rate_limited";
+						retryAfterMs: number;
+					};
+				};
+				500: {
+					headers: {
+						[x: string]: string;
+					};
+					body: {
+						message: string;
+						errorCode: "internal_error";
+					};
+				};
+			};
+		};
+	};
 	"/api/v1/files/write": {
 		POST: {
 			pathParams: never;
@@ -1570,6 +1725,7 @@ export type BonoboHttpApi = {
 							_creationTime: number;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							createdAt: number;
 							path: string;
 							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
@@ -1578,7 +1734,6 @@ export type BonoboHttpApi = {
 							sequence: number;
 							contentRevision: string | null;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
-							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							operation: "fence" | "archive" | "read_only" | "write";
 							fingerprint: string;
 						};
@@ -1980,13 +2135,13 @@ export type BonoboHttpApi = {
 						[x: string]: string;
 					};
 					body: {
-						message: "Rate limit exceeded";
-						errorCode: "rate_limited";
-						retryAfterMs: number;
-					} | {
 						message: "Plugin API call limit exceeded";
 						errorCode: "call_limit_reached";
 						retryAfterMs?: undefined;
+					} | {
+						message: "Rate limit exceeded";
+						errorCode: "rate_limited";
+						retryAfterMs: number;
 					};
 				};
 				500: {
@@ -2188,6 +2343,7 @@ export type BonoboHttpApi = {
 							_creationTime: number;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							createdAt: number;
 							path: string;
 							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
@@ -2196,7 +2352,6 @@ export type BonoboHttpApi = {
 							sequence: number;
 							contentRevision: string | null;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
-							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							operation: "fence" | "archive" | "read_only" | "write";
 							fingerprint: string;
 						};
@@ -2320,6 +2475,7 @@ export type BonoboHttpApi = {
 							_creationTime: number;
 							organizationId: import("convex/values").GenericId<"organizations">;
 							workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							createdAt: number;
 							path: string;
 							writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
@@ -2328,7 +2484,6 @@ export type BonoboHttpApi = {
 							sequence: number;
 							contentRevision: string | null;
 							nodeId: import("convex/values").GenericId<"files_nodes">;
-							installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 							operation: "fence" | "archive" | "read_only" | "write";
 							fingerprint: string;
 						};
@@ -2593,6 +2748,7 @@ export type BonoboHttpApi = {
 						_creationTime: number;
 						organizationId: import("convex/values").GenericId<"organizations">;
 						workspaceId: import("convex/values").GenericId<"organizations_workspaces">;
+						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 						createdAt: number;
 						path: string;
 						writerId: import("convex/values").GenericId<"plugins_external_file_writers">;
@@ -2601,7 +2757,6 @@ export type BonoboHttpApi = {
 						sequence: number;
 						contentRevision: string | null;
 						nodeId: import("convex/values").GenericId<"files_nodes">;
-						installationId: import("convex/values").GenericId<"plugins_workspace_installations">;
 						operation: "fence" | "archive" | "read_only" | "write";
 						fingerprint: string;
 					};

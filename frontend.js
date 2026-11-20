@@ -21,9 +21,10 @@ import { anyApi } from "convex/server";
  *
  * @type {import("bonobo-plugin-sdk/convex-api").BonoboConvexApi}
  */
-const bonobo_convex_api = /**
- * @type {any}
- */ (anyApi);
+const bonobo_convex_api =
+	/**
+	 * @type {any}
+	 */ (anyApi);
 
 /**
  * `getToken` refreshes when the token is expired or expires within this margin. The Convex auth
@@ -56,9 +57,10 @@ function read_theme(value) {
 	if (typeof value !== "object" || value === null) {
 		return null;
 	}
-	const candidate = /**
-	 * @type {{ mode?: unknown, tokens?: unknown }}
-	 */ (value);
+	const candidate =
+		/**
+		 * @type {{ mode?: unknown, tokens?: unknown }}
+		 */ (value);
 	if (candidate.mode !== "light" && candidate.mode !== "dark") {
 		return null;
 	}
@@ -293,9 +295,10 @@ export async function bonobo_connect() {
 	const agentTools = new Map();
 
 	/**
-	 * The page's view context provider. The host asks it right before a chat message is sent.
+	 * The page's view context provider. The host asks it right before a chat message is sent, and
+	 * when the agent reads the screen.
 	 *
-	 * @type {(() => unknown) | null}
+	 * @type {((request: { detail: "summary" | "snapshot", ref: string | null }) => unknown) | null}
 	 */
 	let contextProvider = null;
 	// The JSON of the last view context posted to the host, the newest one the page set, and the
@@ -743,7 +746,10 @@ export async function bonobo_connect() {
 							contextProvider = provider;
 							// The host asks only while a provider is set. So a page without one never makes a
 							// chat message wait for the host's timeout.
-							window.parent.postMessage({ type: "bonobo:context-provider", nonce, enabled: provider !== null }, parentOrigin);
+							window.parent.postMessage(
+								{ type: "bonobo:context-provider", nonce, enabled: provider !== null },
+								parentOrigin,
+							);
 							return () => {
 								if (provider !== null && contextProvider === provider) {
 									contextProvider = null;
@@ -810,7 +816,13 @@ export async function bonobo_connect() {
 						window.parent.postMessage({ type: "bonobo:agent-tool-result", nonce, callId, ...answer }, parentOrigin);
 					} catch {
 						window.parent.postMessage(
-							{ type: "bonobo:agent-tool-result", nonce, callId, ok: false, error: "The tool output could not be sent" },
+							{
+								type: "bonobo:agent-tool-result",
+								nonce,
+								callId,
+								ok: false,
+								error: "The tool output could not be sent",
+							},
 							parentOrigin,
 						);
 					}
@@ -842,17 +854,30 @@ export async function bonobo_connect() {
 						window.parent.postMessage({ type: "bonobo:context-result", nonce, requestId, ...answer }, parentOrigin);
 					} catch {
 						window.parent.postMessage(
-							{ type: "bonobo:context-result", nonce, requestId, ok: false, error: "The view context could not be sent" },
+							{
+								type: "bonobo:context-result",
+								nonce,
+								requestId,
+								ok: false,
+								error: "The view context could not be sent",
+							},
 							parentOrigin,
 						);
 					}
+				};
+				// "snapshot" is the agent reading the screen with `view_snapshot`, and `ref` names one part of
+				// an earlier answer. An older host sends neither field, and that is a "summary" request.
+				/** @type {{ detail: "summary" | "snapshot", ref: string | null }} */
+				const request = {
+					detail: message.detail === "snapshot" ? "snapshot" : "summary",
+					ref: typeof message.ref === "string" && message.ref.length <= 64 ? message.ref : null,
 				};
 				const provider = contextProvider;
 				if (!provider) {
 					reply({ ok: false, error: "No context provider" });
 				} else {
 					Promise.resolve()
-						.then(() => provider())
+						.then(() => provider(request))
 						.then(
 							(context) =>
 								reply(
